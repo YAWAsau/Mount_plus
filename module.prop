@@ -1,0 +1,6 @@
+id=dcimswitch
+name=YAWAsau Mount
+version=v1.4.69-notify-result-preserve-parsed-20260825
+versionCode=103
+author=Github@YAWAsau
+description=自定義掛載模塊，可切換日常與工作相冊，gcc交叉編譯二進制+c事件驅動 修改即時生效

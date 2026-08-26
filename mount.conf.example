@@ -1,0 +1,80 @@
+# YAWAsau Mount v1.4.2 預設設定
+#
+# 實際使用中的設定檔：/data/adb/dcimswitch/mount.conf
+# 如果此檔位於 /data/adb/dcimswitch/mount.conf，儲存後會由 inotify 即時套用。若位於模組目錄，僅是模板/範例，不會被監聽。
+#
+# ─────────────────────────────────────────────
+# ① 主分區設定
+# ─────────────────────────────────────────────
+# partition：必填。填「分區名稱」，不是 /dev/block/... 路徑。
+# 例如 partition=YAWAsau，模組會自己尋找名稱為 YAWAsau 的 by-name 分區。
+# 找不到就直接報錯，不會猜 sda16、sda17 等實體節點。
+partition=YAWAsau
+
+# mount_point：必填。上面那顆分區要掛到哪個目錄。
+mount_point=/mnt/YAWAsau
+
+# fs：分區格式。
+# auto = 自動辨識 ext4 或 f2fs（建議）
+# 也可以直接填 ext4 或 f2fs。
+# 其他格式一律拒絕掛載。
+fs=auto
+
+# ─────────────────────────────────────────────
+# ② 預先建立的資料夾
+# ─────────────────────────────────────────────
+# 格式：dir=資料夾完整路徑|權限策略
+# preserve = 只建立/檢查，不主動修改原本權限
+# media_rw = 將這個「目錄本身」整理成 Android 媒體目錄需要的權限；不遞迴修改裡面的檔案
+# 不需要的 dir= 行可以直接刪掉。
+dir=/mnt/YAWAsau/Pictures/Screenshots|media_rw
+dir=/mnt/YAWAsau/DCIM/Camera|media_rw
+dir=/mnt/YAWAsau/DCIM2/Camera|media_rw
+
+# ─────────────────────────────────────────────
+# ③ 可切換的掛載來源（Profile）
+# ─────────────────────────────────────────────
+# 格式：profile=群組名稱|目前選項
+# 下面代表 camera 群組目前選「daily」。
+# WebUI 切換日常/工作時，實際就是修改這一行。
+profile=camera|daily
+
+# ─────────────────────────────────────────────
+# ④ 掛載項目
+# ─────────────────────────────────────────────
+# 格式：
+# mount=顯示名稱|User ID|來源資料夾|手機端掛載路徑|啟用|Profile群組|Profile選項|權限策略|自動建立來源|首次搬移
+#
+# 每一欄的意思：
+# 1. 顯示名稱：WebUI 顯示的名字。可以留空，留空就直接取掛載路徑最後一段。
+#    例如目標是 /storage/emulated/0/MT2，名稱留空時 WebUI 就顯示「MT2」。
+# 2. User ID：主使用者通常是 0；其他 Android 使用者填自己的 ID，例如 10。
+# 3. 來源資料夾：真正存放資料的位置。可填完整路徑；也可填相對路徑，會自動接到 mount_point 下。
+# 4. 手機端掛載路徑：你希望 Android / App 看到的位置。可填 /storage/emulated/<User>/...；也可填相對路徑，會自動接到 /storage/emulated/<User>/ 下。
+# 5. 啟用：1=啟用，0=停用。
+# 6. Profile群組：不需要切換來源就留空。
+# 7. Profile選項：不需要切換來源就留空。
+# 8. 權限策略：preserve、media_rw 或 bindfs_shared（bindfs_shared 僅 mount= 支援；dir= 只支援 preserve/media_rw）。
+# 9. 自動建立來源：1=來源不存在時自動 mkdir，0=不存在就報錯/跳過。
+# 10. 首次搬移：none=不搬；once=第一次掛載前，把手機端原有內容非覆蓋搬到來源。
+#
+# 注意：同一個 User、同一個手機端掛載路徑，同一時間只能有一個有效來源。
+
+mount=虛擬分區|0|/mnt/YAWAsau/備份|/storage/emulated/0/虛擬分區|1|||media_rw|1|none
+mount=Pictures|0|/mnt/YAWAsau/Pictures|/storage/emulated/0/Pictures|1|||media_rw|1|once
+mount=QQ|0|/data/media/0/Android/data/com.tencent.mobileqq/Tencent/QQfile_recv|/storage/emulated/0/Download/QQ|1|||preserve|1|none
+mount=Telegram|0|/data/media/0/Android/data/tw.nekomimi.nekogram/files/Telegram|/storage/emulated/0/Download/Telegram|1|||preserve|1|none
+
+# camera 群組：daily 與 work 共用同一個 /storage/emulated/0/DCIM。
+# profile=camera|daily 時只啟用「日常」；切成 work 時只啟用「工作」。
+mount=日常|0|/mnt/YAWAsau/DCIM|/storage/emulated/0/DCIM|1|camera|daily|media_rw|1|once
+mount=工作|0|/mnt/YAWAsau/DCIM2|/storage/emulated/0/DCIM|1|camera|work|media_rw|1|once
+
+
+# 跨 User 共享範例：如果 User 10 裡的普通 App 直接打開檔案會 EACCES，可改用 bindfs_shared；需先將自行編譯的 bindfs 放到模組 bin/bindfs 或 /data/adb/dcimswitch/native/bin/bindfs。
+# 它會在掛載視圖中映射 uid/gid/mode/context，不直接遞迴修改 /mnt/YAWAsau/備份 內既有檔案。
+# mount=虛擬分區-U10|10|備份|虛擬分區|1|||bindfs_shared|1|none
+
+# 自由掛載範例（預設不啟用，需要時取消前面的 #）：
+# 名稱留空，所以 WebUI 會顯示目標最後一段「MT2」。
+# mount=|0|MT2|MT2|1|||preserve|1|none

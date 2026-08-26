@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="color-scheme" content="light dark">
+  <title>YAWAsau Mount</title>
+  <link rel="stylesheet" href="./assets/style.css">
+</head>
+<body>
+  <main class="wrap">
+    <section class="hero card">
+      <div class="eyebrow">YAWAsau Mount</div>
+      <div class="current-row">
+        <span id="dot" class="dot"></span>
+        <div><div class="muted">目前狀態</div><div id="current" class="current">讀取中…</div></div>
+      </div>
+      <div id="source" class="mono source">-</div>
+      <div id="health" class="hint">正在檢查 mount.conf 與掛載狀態</div>
+    </section>
+
+    <section class="card details">
+      <div class="kv"><span>檔案系統</span><b id="fs-state">-</b></div>
+      <div class="kv"><span>分區裝置</span><b id="device-state" class="mono">-</b></div>
+      <div class="kv"><span>主掛載點</span><b id="root-state" class="mono">-</b></div>
+      <div class="kv"><span>mount.conf</span><b id="conf-state" class="mono">-</b></div>
+      <div class="kv"><span>設定監聽</span><b>事件驅動</b></div>
+    </section>
+
+    <section id="mount-card" class="card details">
+      <div class="row-title">掛載項目</div>
+      <div id="mount-list"><div class="kv"><span>讀取中…</span><b>-</b></div></div>
+    </section>
+
+    <div id="profile-sections"></div>
+
+    <section class="card">
+      <div class="row-title">操作</div>
+      <div class="buttons">
+        <button id="apply" class="secondary" type="button">重新套用掛載</button>
+        <button id="refresh" class="secondary" type="button">重新整理</button>
+        <button id="validate" class="secondary" type="button">設定檢查</button>
+        <button id="service" class="secondary" type="button">啟動服務</button>
+        <button id="showlog" class="secondary" type="button">查看日誌</button>
+      </div>
+      <pre id="log" class="log hidden"></pre>
+    </section>
+
+    <p class="foot">目前生效設定固定為 /data/adb/dcimswitch/mount.conf；修改此檔後由 confwatch/inotify 即時套用。模組目錄內的 mount.conf 只是範例/模板，不會被監聽。</p>
+  </main>
+  <div id="toast" class="toast hidden"></div>
+  <script src="./assets/index.js"></script>
+</body>
+</html>

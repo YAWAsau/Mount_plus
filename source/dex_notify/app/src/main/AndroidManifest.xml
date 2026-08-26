@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Pure classes.dex/app_process build: no Activity, Receiver, Service, launcher, icon, or runtime UI component. -->
+    <application
+        android:allowBackup="false"
+        android:supportsRtl="true" />
+</manifest>

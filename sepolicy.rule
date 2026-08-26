@@ -1,0 +1,8 @@
+# Magisk SELinux Policy
+allow su labeledfs filesystem mount
+allow su fuse_device chr_file { read write open ioctl getattr }
+allow su device dir { read open }
+allow media_rw_data_file media_rw_data_file filesystem associate
+allow media_rw_data_file labeledfs filesystem associate
+allow untrusted_app su dir { search getattr read }
+allow untrusted_app su file { read getattr }
