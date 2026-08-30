@@ -1,6 +1,6 @@
 id=dcimswitch
 name=YAWAsau Mount
-version=v1.4.69-notify-result-preserve-parsed-20260825
-versionCode=103
+version=v1.4.70-fast-unlock-mount-20260826
+versionCode=104
 author=Github@YAWAsau
-description=自定義掛載模塊，可切換日常與工作相冊，gcc交叉編譯二進制+c事件驅動 修改即時生效
+description=加速開機解鎖後前景掛載：前景只同步核心 namespace、App namespace 背景補同步；合併 User 解鎖事件避免 propwait/lifecycle/filewatch 重複 reload；保留 Dex-only one-shot、static bindfs + native helper

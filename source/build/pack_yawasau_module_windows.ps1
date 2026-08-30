@@ -14,7 +14,7 @@ $ModuleRoot = [System.IO.Path]::GetFullPath($ModuleRoot)
 if ([string]::IsNullOrWhiteSpace($NativeOut)) { $NativeOut = Join-Path $ModuleRoot 'native_out' }
 $NativeOut = [System.IO.Path]::GetFullPath($NativeOut)
 if ([string]::IsNullOrWhiteSpace($OutZip)) {
-    $OutZip = Join-Path (Split-Path -Parent $ModuleRoot) 'YAWAsau_Mount_v1.4.69_notify_result_preserve_parsed_module_20260825.zip'
+    $OutZip = Join-Path (Split-Path -Parent $ModuleRoot) 'YAWAsau_Mount_v1.4.70_fast_unlock_mount_module_20260826.zip'
 }
 
 function Fail([string]$m) { throw $m }

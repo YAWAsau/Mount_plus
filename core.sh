@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.69-notify-result-preserve-parsed
+# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.70-fast-unlock-mount
 # Internal library only. mount.conf is parsed as data; it is never sourced.
 
 MODDIR=${MODDIR:-${0%/*}}
@@ -44,7 +44,7 @@ POLICY_FILE="$MODDIR/sepolicy.rule"
 BIND_POLICY_MARK="$RUNTIME/bindfs_policy.applied"
 CONFIG_STATE="$RUNTIME/config.state"
 APPLIED_HASH="$RUNTIME/config.applied.cksum"
-MODULE_VERSION=v1.4.69-notify-result-preserve-parsed-20260825
+MODULE_VERSION=v1.4.70-fast-unlock-mount-20260826
 mkdir -p "$RUNTIME" "$PARSED" 2>/dev/null
 DELIM='|'
 
@@ -203,7 +203,7 @@ mount_removed_names_compact() {
 }
 
 notify_boot_wait_unlock_once() {
-  _nbwu_marker=/dev/.yawasau_notify_boot_wait_unlock_v168
+  _nbwu_marker=/dev/.yawasau_notify_boot_wait_unlock_v170
   [ -e "$_nbwu_marker" ] && return 0
   if notify_post "等待解鎖後開始掛載" "Android 開機後需要使用者解鎖，內置儲存解密完成後才會開始掛載" "boot_wait_unlock"; then
     : > "$_nbwu_marker" 2>/dev/null || true
@@ -212,7 +212,7 @@ notify_boot_wait_unlock_once() {
 
 notify_unlock_start_once() {
   _nus_user=${1:-0}
-  _nus_marker="/dev/.yawasau_notify_unlock_start_${_nus_user}_v168"
+  _nus_marker="/dev/.yawasau_notify_unlock_start_${_nus_user}_v170"
   [ -e "$_nus_marker" ] && return 0
   if notify_post "檢測到 User $_nus_user 解鎖" "開始掛載 User $_nus_user 的儲存映射" "unlock_start_user_${_nus_user}"; then
     : > "$_nus_marker" 2>/dev/null || true
@@ -1241,6 +1241,45 @@ core_ns_pids() {
   user_proc_pids "$_u"
 }
 
+fast_foreground_reason() {
+  case "$1" in
+    boot_initial|user*_unlocked|user0_propwait|user0_filewatch|user_*_storage_ready_retry*) return 0 ;;
+  esac
+  return 1
+}
+
+mount_row_ns_foreground() {
+  _mrf_u=$1; _mrf_src=$2; _mrf_dst=$3; _mrf_pol=$4
+  if [ "$_mrf_pol" = bindfs_shared ]; then
+    mount_row_ns "$_mrf_u" "$_mrf_src" "$_mrf_dst" "$_mrf_pol"
+  else
+    bind_all_ns_base "$_mrf_u" "$_mrf_src" "$_mrf_dst"
+  fi
+}
+
+mount_active_background_sync() {
+  _mabs_file=$1; _mabs_reason=${2:-background}
+  [ -f "$_mabs_file" ] || return 0
+  (
+    _mabs_lock="$RUNTIME/ns_background_sync.lock"
+    if ! mkdir "$_mabs_lock" 2>/dev/null; then exit 0; fi
+    trap 'rmdir "$RUNTIME/ns_background_sync.lock" 2>/dev/null || true' EXIT INT TERM
+    sleep 0.2
+    _mabs_scope=$(reason_user_scope "$_mabs_reason" 2>/dev/null || true)
+    _mabs_tmp="$RUNTIME/ns_background_sync.$$.rows"
+    cp -f "$_mabs_file" "$_mabs_tmp" 2>/dev/null || exit 0
+    logi "背景同步 App namespace 啟動｜原因=$_mabs_reason｜scope=${_mabs_scope:-all}"
+    while IFS='|' read -r _mabs_n _mabs_u _mabs_s _mabs_t _mabs_l _mabs_v _mabs_e _mabs_g _mabs_pv _mabs_pol _mabs_create _mabs_migrate; do
+      [ -n "$_mabs_l" ] || continue
+      row_scope_match "$_mabs_scope" "$_mabs_u" || continue
+      mount_row_ns "$_mabs_u" "$_mabs_s" "$_mabs_l" "$_mabs_pol" >/dev/null 2>&1 || true
+    done < "$_mabs_tmp"
+    rm -f "$_mabs_tmp" 2>/dev/null || true
+    logi "背景同步 App namespace 完成｜原因=$_mabs_reason｜scope=${_mabs_scope:-all}"
+  ) >/dev/null 2>&1 &
+  return 0
+}
+
 policy_apply() {
   _src=$1; _pol=$2
   _uid=$(stat -c '%u' "$_src" 2>/dev/null); _gid=$(stat -c '%g' "$_src" 2>/dev/null); _mode=$(stat -c '%a' "$_src" 2>/dev/null); _ctx=$(ls -Zd "$_src" 2>/dev/null | awk '{print $1}')
@@ -1988,7 +2027,15 @@ apply_reload() {
       _fail=$((_fail+1)); continue
     fi
     migrate_once "$_u" "$_s" "$_l" "$_migrate" || { logw "一次性搬移未完整成功｜名稱=$_n"; _fail=$((_fail+1)); }
-    if row_mounted "$_u" "$_s" "$_l" "$_pol"; then _bok=1; else mount_row_ns "$_u" "$_s" "$_l" "$_pol" && _bok=1 || _bok=0; fi
+    if row_mounted "$_u" "$_s" "$_l" "$_pol"; then
+      _bok=1
+    else
+      if fast_foreground_reason "$_reason"; then
+        mount_row_ns_foreground "$_u" "$_s" "$_l" "$_pol" && _bok=1 || _bok=0
+      else
+        mount_row_ns "$_u" "$_s" "$_l" "$_pol" && _bok=1 || _bok=0
+      fi
+    fi
     if [ "$_bok" = 1 ]; then
       if [ -n "$_v" ]; then
         if visible_probe "$_u" "$_s" "$_v"; then
@@ -2014,10 +2061,13 @@ apply_reload() {
     [ -n "$_cfg_hash" ] && printf '%s\n' "$_cfg_hash" > "$APPLIED_HASH.tmp.$$" 2>/dev/null && mv -f "$APPLIED_HASH.tmp.$$" "$APPLIED_HASH" 2>/dev/null
     config_state_write valid 0 "$_reason" "$_cfg_hash" "$_defer" >/dev/null 2>&1 || true
     case "$_reason" in
-      boot_initial|media_apply|user*_unlocked|user0_propwait|user0_filewatch)
+      boot_initial|media_apply|user*_unlocked|user0_propwait|user0_filewatch|user_*_storage_ready_retry*)
         media_scan_schedule_initial_roots "$_reason" >/dev/null 2>&1 || true
         ;;
     esac
+    if fast_foreground_reason "$_reason"; then
+      mount_active_background_sync "$ACTIVE" "$_reason" >/dev/null 2>&1 || true
+    fi
   else
     rm -f "$_next" 2>/dev/null
     config_state_write invalid 1 "$_reason" "$_cfg_hash" "$_defer" >/dev/null 2>&1 || true

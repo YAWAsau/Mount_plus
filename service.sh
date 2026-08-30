@@ -27,9 +27,9 @@ user_is_unlocked(){
 }
 
 # Once-per-boot log rotation using /dev marker (cleared by reboot).
-MARK=/dev/.yawasau_log_initialized_v168
+MARK=/dev/.yawasau_log_initialized_v170
 if [ ! -e "$MARK" ]; then
-  LOCK=/dev/.yawasau_log_init.lock_v168
+  LOCK=/dev/.yawasau_log_init.lock_v170
   if mkdir "$LOCK" 2>/dev/null; then
     for _n in service mount dcim_switch; do
       _f="$RUNTIME/${_n}.log"; [ -f "$_f" ] && mv -f "$_f" "$_f.prev" 2>/dev/null || true
@@ -41,7 +41,7 @@ if [ ! -e "$MARK" ]; then
     _i=0; while [ ! -e "$MARK" ] && [ "$_i" -lt 40 ]; do sleep 0.05; _i=$((_i+1)); done
   fi
 fi
-printf '========== YAWAsau Mount v1.4.69｜本次開機日誌 ==========\n' >> "$LOG" 2>/dev/null
+printf '========== YAWAsau Mount v1.4.70｜本次開機日誌 ==========\n' >> "$LOG" 2>/dev/null
 log '[資訊] 掛載服務啟動'
 log "[資訊] 目前生效設定｜$CONF"
 log "[資訊] 模組內建模板不會被監聽｜$MODDIR/mount.conf / mount.conf.default / mount.conf.example"
@@ -49,10 +49,10 @@ log "[資訊] 模組內建模板不會被監聽｜$MODDIR/mount.conf / mount.con
 # v1.4.56: runtime mount state is not persistent across reboot.
 # Bind mounts/FUSE mounts disappear at boot, so stale active_mounts.tsv must not
 # make lifecycle retries report active=1/1 without performing a fresh mount.
-if [ ! -e /dev/.yawasau_active_reset_v168 ]; then
+if [ ! -e /dev/.yawasau_active_reset_v170 ]; then
   rm -f "$RUNTIME/active_mounts.tsv" "$RUNTIME"/active_mounts.tsv.next.* "$RUNTIME/config.state" "$RUNTIME/bindfs_policy.applied" "$RUNTIME"/media_provider_ns.*.cache 2>/dev/null || true
   rm -f "$RUNTIME"/notify.all_ready.* "$RUNTIME"/notify.incomplete.* "$RUNTIME"/notify.mount_summary.* 2>/dev/null || true
-  : > /dev/.yawasau_active_reset_v168 2>/dev/null || true
+  : > /dev/.yawasau_active_reset_v170 2>/dev/null || true
   log '[資訊] 本次開機已清除非持久化 active_mounts / namespace cache，避免沿用上次開機掛載狀態'
 fi
 
@@ -216,7 +216,7 @@ user_is_unlocked(){
 }
 notify_unlock_start_once_service(){
   _usr=$1
-  _mk="/dev/.yawasau_service_unlock_start_${_usr}_v168"
+  _mk="/dev/.yawasau_service_unlock_start_${_usr}_v170"
   mkdir "$_mk" 2>/dev/null || return 0
   sh "$MOUNT" notify_unlock_start "$_usr" >/dev/null 2>&1 || true
   return 0
@@ -259,6 +259,19 @@ user_reload_retry(){
   return 0
 }
 
+user_reload_retry_once(){
+  _usr=$1; _why=${2:-lifecycle}
+  case "$_usr" in ''|*[!0-9]*) return 0;; esac
+  _lk="/dev/.yawasau_user_reload_running_${_usr}_v170"
+  if ! mkdir "$_lk" 2>/dev/null; then
+    log "[資訊] User $_usr 解鎖掛載已由其他事件處理，略過重複觸發｜來源=$_why"
+    return 0
+  fi
+  user_reload_retry "$_usr" "$_why"
+  rmdir "$_lk" 2>/dev/null || true
+  return 0
+}
+
 userstate_watch_loop(){
   command -v logcat >/dev/null 2>&1 || return 0
   log '[資訊] 多使用者 lifecycle 事件監聽啟動｜RUNNING_UNLOCKED/STOPPING/SHUTDOWN'
@@ -268,11 +281,8 @@ userstate_watch_loop(){
         *'User '*' to RUNNING_UNLOCKED'*|*'User '*'state changed from '*'to RUNNING_UNLOCKED'*)
           _u=$(printf '%s\n' "$_line" | sed -n 's/.*User \([0-9][0-9]*\) .*/\1/p' | head -n1)
           case "$_u" in ''|*[!0-9]*) continue;; esac
-          log "[資訊] User 解鎖事件｜User=$_u｜重新套用對應設定"
-          notify_unlock_start_once_service "$_u"
-          sh "$CONTROL" reload "user_${_u}_unlocked" >/dev/null 2>&1
-          sh "$CONTROL" refresh_card >/dev/null 2>&1 || true
-          user_reload_retry "$_u" lifecycle >/dev/null 2>&1 &
+          log "[資訊] User 解鎖事件｜User=$_u｜準備套用對應掛載"
+          user_reload_retry_once "$_u" lifecycle >/dev/null 2>&1 &
           ;;
         *'User '*' to STOPPING'*|*'User '*' to SHUTDOWN'*)
           _u=$(printf '%s\n' "$_line" | sed -n 's/.*User \([0-9][0-9]*\) .*/\1/p' | head -n1)
@@ -298,9 +308,7 @@ user0_prop_once(){
       *) "$PROPWAIT" equals sys.user.0.ce_available true >/dev/null 2>&1 || return 0; _ce=$(getprop sys.user.0.ce_available 2>/dev/null) ;;
     esac
     log "[資訊] User 0 CE 解鎖事件命中｜來源=propwait｜value=${_ce:-event}"
-    notify_unlock_start_once_service 0
-    sh "$CONTROL" reload user0_propwait >/dev/null 2>&1
-    sh "$CONTROL" refresh_card >/dev/null 2>&1 || true
+    user_reload_retry_once 0 propwait >/dev/null 2>&1
   fi
 }
 user0_file_once(){
@@ -308,9 +316,7 @@ user0_file_once(){
   sh "$MOUNT" status 2>/dev/null | grep -q '"user":0' || return 0
   "$FILEWATCH" --wait-exists /data/media/0/Download >/dev/null 2>&1 || return 0
   log '[資訊] User 0 儲存路徑事件命中｜來源=filewatch'
-  notify_unlock_start_once_service 0
-  sh "$CONTROL" reload user0_filewatch >/dev/null 2>&1
-  sh "$CONTROL" refresh_card >/dev/null 2>&1 || true
+  user_reload_retry_once 0 filewatch >/dev/null 2>&1
 }
 
 start_singleton confwatch config_watch_loop

@@ -38,7 +38,7 @@ Set-Location $RootDir
 $LogPath = Join-Path $ScriptDir 'build_yawasau_native_windows.log'
 if (Test-Path -LiteralPath $LogPath) { Remove-Item -LiteralPath $LogPath -Force }
 
-# v1.4.69: native source restored; for notification builds prefer build_yawasau_full_module_windows.ps1 so classes.dex is packaged. A plain
+# v1.4.70: native source restored; for notification builds prefer build_yawasau_full_module_windows.ps1 so classes.dex is packaged. A plain
 #   .\build_yawasau_native_windows.ps1
 # builds static bindfs/libfuse3 and native mount.fuse3 helper, then reuses the bundled
 # known-good magiskpolicy unless -BuildMagiskPolicy is explicitly supplied. This avoids

@@ -3,7 +3,7 @@ MODID=dcimswitch
 DATA_DIR=/data/adb/dcimswitch
 CONF="$DATA_DIR/mount.conf"
 
-ui_print '── YAWAsau Mount v1.4.69 安裝 ──'
+ui_print '── YAWAsau Mount v1.4.70 安裝 ──'
 ui_print '檢查環境：arm64 / Dex 通知 / static bindfs'
 [ "$ARCH" = arm64 ] || abort '不支援的架構：本模組只支援 arm64-v8a'
 

@@ -26,7 +26,7 @@ if (-not $SkipNative) {
         Python = $Python
         NoPackModule = $true
     }
-    # v1.4.69: magiskpolicy does not change for notify/shell/C helper edits.
+    # v1.4.70: magiskpolicy does not change for notify/shell/C helper edits.
     # Default full builds reuse the bundled known-good bin/magiskpolicy so the
     # one-command build will not repeatedly clone Magisk or download ONDK.
     # Pass -RebuildMagiskPolicy only when intentionally refreshing the official-source binary.
