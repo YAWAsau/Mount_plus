@@ -1,6 +1,6 @@
 id=dcimswitch
 name=YAWAsau Mount
-version=v1.4.70-fast-unlock-mount-20260826
-versionCode=104
+version=v1.4.81-remove-notify-real-id-profile-dedup-20260830
+versionCode=1481
 author=Github@YAWAsau
-description=加速開機解鎖後前景掛載：前景只同步核心 namespace、App namespace 背景補同步；合併 User 解鎖事件避免 propwait/lifecycle/filewatch 重複 reload；保留 Dex-only one-shot、static bindfs + native helper
+description=保留 v1.4.80；修正移除掛載通知真正使用獨立通知 ID 並在內容中明示「移除掛載成功」，同時跳過 Profile 內部 mount.conf 事件的重複 config summary

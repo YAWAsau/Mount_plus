@@ -68,3 +68,10 @@ dependencies {
     compileOnly("androidx.annotation:annotation:1.9.1")
     compileOnly(project(":hiddenapi"))
 }
+
+
+## v1.4.76 修正
+
+- 修正安裝腳本未將 `bin/mounttx` 設為 0755，導致 WebUI/Profile 切換報「缺少 native mounttx」。
+- `service.sh` 新增開機自修：若 `bin/mounttx` 存在但不可執行，會自動 `chmod 0755`。
+- Profile native transaction、`bindfs_shared` orchestration、rollback/probe 邏輯沿用 v1.4.75，不改掛載策略。

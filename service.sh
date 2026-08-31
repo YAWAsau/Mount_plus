@@ -10,6 +10,10 @@ CONFWATCH="$MODDIR/bin/confwatch"
 PROPWAIT="$MODDIR/bin/propwait"
 FILEWATCH="$MODDIR/bin/filewatch"
 mkdir -p "$RUNTIME" 2>/dev/null
+# v1.4.76 self-heal: older installers could unpack bin/mounttx without +x.
+# Profile native transaction is intentionally native-only, so repair the bit at boot.
+[ -f "$MODDIR/bin/mounttx" ] && chmod 0755 "$MODDIR/bin/mounttx" 2>/dev/null || true
+[ -f "$MODDIR/bin/confwatch" ] && chmod 0755 "$MODDIR/bin/confwatch" 2>/dev/null || true
 
 now(){ date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date; }
 log(){ printf '%s %s\n' "$(now)" "$*" >> "$LOG" 2>/dev/null; }
@@ -41,7 +45,7 @@ if [ ! -e "$MARK" ]; then
     _i=0; while [ ! -e "$MARK" ] && [ "$_i" -lt 40 ]; do sleep 0.05; _i=$((_i+1)); done
   fi
 fi
-printf '========== YAWAsau Mount v1.4.70｜本次開機日誌 ==========\n' >> "$LOG" 2>/dev/null
+printf '========== YAWAsau Mount v1.4.81｜本次開機日誌 ==========\n' >> "$LOG" 2>/dev/null
 log '[資訊] 掛載服務啟動'
 log "[資訊] 目前生效設定｜$CONF"
 log "[資訊] 模組內建模板不會被監聽｜$MODDIR/mount.conf / mount.conf.default / mount.conf.example"
@@ -125,6 +129,9 @@ wait_config_stable(){
 }
 
 config_content_hash(){
+  if [ -x "$CONFWATCH" ]; then
+    "$CONFWATCH" --hash "$CONF" 2>/dev/null && return 0
+  fi
   cksum "$CONF" 2>/dev/null | awk '{print $1":"$2}' | head -n1
 }
 config_defer_count(){
@@ -132,32 +139,46 @@ config_defer_count(){
 }
 
 config_watch_loop(){
-  log "[資訊] mount.conf 事件監聽啟動｜binary=confwatch｜path=$CONF"
+  log "[資訊] mount.conf 事件監聽啟動｜binary=confwatch｜path=$CONF｜mode=native-stable-content"
   _cw_last_hash=$(config_content_hash)
   while true; do
     if [ -x "$CONFWATCH" ]; then
-      "$CONFWATCH" --wait-change "$CONF" >/dev/null 2>&1
+      # v1.4.78: confwatch owns directory inotify + content hash fallback +
+      # stable debounce internally.  service.sh no longer polls mount.conf every
+      # 0.25s with shell cksum/sleep; this keeps reliability for rename-style
+      # editors without a permanent shell polling loop.
+      _cw_hash=$("$CONFWATCH" --wait-stable-change "$CONF" "$_cw_last_hash" 2>/dev/null)
       _wrc=$?
-      # Editors may emit close-write/rename/attrib as separate events. Wait only
-      # until content is stable, then apply.  chmod/attrib emitted by our own
-      # seed_config must not be reported as a real config reload.
-      wait_config_stable
-      _cw_hash=$(config_content_hash)
-      if [ -n "$_cw_hash" ] && [ "$_cw_hash" = "$_cw_last_hash" ]; then
-        log "[資訊] 偵測 mount.conf 非內容事件，已跳過｜watch_rc=$_wrc｜hash=$_cw_hash"
+      case "$_cw_hash" in *:*) ;; *) _cw_hash=$(config_content_hash);; esac
+      if [ -z "$_cw_hash" ]; then
+        log "[警告] confwatch 未取得內容 hash，稍後重試｜watch_rc=$_wrc"
+        sleep 0.25
+        continue
+      fi
+      if [ -n "$_cw_last_hash" ] && [ "$_cw_hash" = "$_cw_last_hash" ]; then
+        log "[資訊] 偵測 mount.conf 非內容事件，已跳過｜watch_rc=$_wrc｜reason=confwatch_stable｜hash=$_cw_hash"
         continue
       fi
       _cw_last_hash=$_cw_hash
-      log "[資訊] 偵測 mount.conf 內容變更｜watch_rc=$_wrc｜hash=$_cw_hash"
+      # v1.4.81: Profile switching writes mount.conf internally after it has
+      # already committed parsed/active/APPLIED_HASH.  confwatch will still see
+      # that rename.  If the new file hash is already the applied profile_change
+      # hash, do not run another config transaction or emit a misleading
+      # "新增/移除 日常/工作" config notification.
+      _cw_applied_hash=$(cat "$RUNTIME/config.applied.cksum" 2>/dev/null)
+      _cw_state_reason=$(sed -n 's/^REASON=//p' "$RUNTIME/config.state" 2>/dev/null | head -n1)
+      if [ -n "$_cw_hash" ] && [ "$_cw_hash" = "$_cw_applied_hash" ] && [ "$_cw_state_reason" = profile_change ]; then
+        log "[資訊] 偵測 Profile 內部 mount.conf 事件，已跳過重複 config 套用與通知｜watch_rc=$_wrc｜reason=profile_internal｜hash=$_cw_hash"
+        sh "$CONTROL" refresh_card >/dev/null 2>&1 || true
+        continue
+      fi
+      log "[資訊] 偵測 mount.conf 內容變更｜watch_rc=$_wrc｜reason=confwatch_stable｜hash=$_cw_hash"
       _before_active="$RUNTIME/active.before.config.$$"
       cp -f "$RUNTIME/active_mounts.tsv" "$_before_active" 2>/dev/null || : > "$_before_active"
       sh "$CONTROL" reload config_event >/dev/null 2>&1
       _arc=$?
       if [ "$_arc" -eq 3 ]; then
-        # A few editors briefly expose an incomplete replacement file. Retry once
-        # after a short settle instead of treating the transient snapshot as final.
         sleep 0.15
-        wait_config_stable
         _cw_hash=$(config_content_hash); _cw_last_hash=$_cw_hash
         sh "$CONTROL" reload config_event_retry >/dev/null 2>&1
         _arc=$?

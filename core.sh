@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.70-fast-unlock-mount
+# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.81-remove-notify-real-id-profile-dedup
 # Internal library only. mount.conf is parsed as data; it is never sourced.
 
 MODDIR=${MODDIR:-${0%/*}}
@@ -20,6 +20,7 @@ PARSED_HASH="$RUNTIME/parsed.applied.cksum"
 LOCKDIR="$RUNTIME/reload.lock"
 NATIVE_DIR="$DATA_DIR/native"
 BINDFS_HELPER="$MODDIR/bin/bindfs_mount.sh"
+MOUNTTX="${YAW_MOUNTTX:-$MODDIR/bin/mounttx}"
 # v1.4.46: official module layout uses bin only; install/boot hard-preserves existing live/legacy mount.conf.
 # Keep /data/adb/dcimswitch/native as a legacy/manual fallback only; module lib/ is no longer used.
 if [ -n "${YAW_BINDFS:-}" ]; then
@@ -44,7 +45,8 @@ POLICY_FILE="$MODDIR/sepolicy.rule"
 BIND_POLICY_MARK="$RUNTIME/bindfs_policy.applied"
 CONFIG_STATE="$RUNTIME/config.state"
 APPLIED_HASH="$RUNTIME/config.applied.cksum"
-MODULE_VERSION=v1.4.70-fast-unlock-mount-20260826
+NS_BG_GEN="$RUNTIME/ns_background.generation"
+MODULE_VERSION=v1.4.81-remove-notify-real-id-profile-dedup-20260830
 mkdir -p "$RUNTIME" "$PARSED" 2>/dev/null
 DELIM='|'
 
@@ -78,6 +80,7 @@ notify_post_dex() {
   case "$_nt_safe" in
     *fail*|*failed*|*error*|*warn*|*timeout*) _nt_event=ERROR; _nt_channel=error; _nt_id=2401; _nt_once=0 ;;
     *debug*) _nt_event=DEBUG; _nt_channel=debug; _nt_id=2402; _nt_once=1 ;;
+    *config_removed*) _nt_event=RESULT; _nt_channel=result; _nt_id=2410; _nt_once=0 ;;
     *all_ready*|*profile*|*config_reload*) _nt_event=RESULT; _nt_channel=result; _nt_id=2400; _nt_once=1 ;;
   esac
   _nt_batch="$RUNTIME/notify_dex.$$.batch"
@@ -337,6 +340,17 @@ notify_config_apply_result() {
   [ "$_ncar_want" -gt 0 ] && _ncar_text="掛載完成：$_ncar_have/$_ncar_want"
   [ -n "$_ncar_names" ] && _ncar_text="$_ncar_text｜$_ncar_names"
   [ -n "$_ncar_removed" ] && _ncar_text="$_ncar_text｜已移除：$_ncar_removed"
+
+  # v1.4.81: removal-only changes must be visible even if a later config/profile
+  # result updates the normal main notification.  Use a dedicated result id
+  # (handled by notify_post_dex for config_removed*) and put the success wording
+  # in the text too, because the Dex recent/history file records text only.
+  if [ -n "$_ncar_removed" ] && [ -z "$_ncar_added" ]; then
+    _ncar_stamp=$(date +%s 2>/dev/null || echo $$)
+    _ncar_text="移除掛載成功：$_ncar_removed｜$_ncar_text"
+    notify_post "$_ncar_title" "$_ncar_text" "config_removed_${_ncar_stamp}_$$"
+    return $?
+  fi
   notify_post "$_ncar_title" "$_ncar_text" "config_reload"
 }
 
@@ -1205,6 +1219,77 @@ target_mkdir_or_defer() {
   fi
   return 1
 }
+
+visible_target_lower_path() {
+  _vtlp_u=$1; _vtlp_l=$2; _vtlp_v=$3
+  case "$_vtlp_l" in
+    /data/media/$_vtlp_u/*|/data/media/$_vtlp_u) printf '%s\n' "$_vtlp_l"; return 0 ;;
+  esac
+  case "$_vtlp_v" in
+    /storage/emulated/$_vtlp_u/*|/storage/emulated/$_vtlp_u)
+      _vtlp_rel=${_vtlp_v#/storage/emulated/$_vtlp_u}
+      printf '/data/media/%s%s\n' "$_vtlp_u" "$_vtlp_rel"
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+restore_visible_target_after_unmount() {
+  # When a row is disabled/removed, the bind mount is gone and the exposed
+  # /storage/emulated/<user>/... path becomes a plain lower directory again.
+  # Normalize that lower directory as an Android media directory so file managers
+  # do not inherit root/app-private ownership from the old mount target.
+  _rvtu_u=$1; _rvtu_l=$2; _rvtu_v=$3; _rvtu_n=$4; _rvtu_reason=${5:-config_event}
+  case "$_rvtu_u" in ''|*[!0-9]*) return 0;; esac
+  [ -n "$_rvtu_v" ] || return 0
+  user_storage_available "$_rvtu_u" || { logi "卸載後目標整理延後：User 尚未解鎖｜名稱=$_rvtu_n｜User=$_rvtu_u"; return 0; }
+  _rvtu_lower=$(visible_target_lower_path "$_rvtu_u" "$_rvtu_l" "$_rvtu_v" 2>/dev/null || true)
+  [ -n "$_rvtu_lower" ] || return 0
+  ns1 mkdir -p "$_rvtu_lower" 2>/dev/null || mkdir -p "$_rvtu_lower" 2>/dev/null || { logw "卸載後目標整理失敗：無法建立普通目錄｜名稱=$_rvtu_n｜目標=$_rvtu_lower"; return 0; }
+  chown media_rw:media_rw "$_rvtu_lower" 2>/dev/null || ns1 chown media_rw:media_rw "$_rvtu_lower" 2>/dev/null || logw "卸載後目標 chown media_rw 失敗｜名稱=$_rvtu_n｜目標=$_rvtu_lower"
+  chmod 2770 "$_rvtu_lower" 2>/dev/null || ns1 chmod 2770 "$_rvtu_lower" 2>/dev/null || logw "卸載後目標 chmod 2770 失敗｜名稱=$_rvtu_n｜目標=$_rvtu_lower"
+  if command -v chcon >/dev/null 2>&1; then
+    chcon u:object_r:media_rw_data_file:s0 "$_rvtu_lower" 2>/dev/null || ns1 chcon u:object_r:media_rw_data_file:s0 "$_rvtu_lower" 2>/dev/null || true
+  fi
+  logi "已恢復卸載後目標為普通媒體目錄｜名稱=$_rvtu_n｜User=$_rvtu_u｜目標=$_rvtu_lower"
+  media_scan_schedule_visible "$_rvtu_u" "$_rvtu_v" "unmount_restore_$_rvtu_reason" >/dev/null 2>&1 || true
+  return 0
+}
+
+restore_disabled_mount_targets_from_config() {
+  _rdmt_cfg=${1:-$CONF}; _rdmt_reason=${2:-config_event}
+  [ -f "$_rdmt_cfg" ] || return 0
+  while IFS= read -r _rdmt_line || [ -n "$_rdmt_line" ]; do
+    _rdmt_line=${_rdmt_line%%$'\r'}
+    case "$_rdmt_line" in ''|'#'*) continue;; esac
+    case "$_rdmt_line" in mount=*) ;; *) continue;; esac
+    _rdmt_body=${_rdmt_line#mount=}
+    OLDIFS=$IFS; IFS='|'; set -- $_rdmt_body; IFS=$OLDIFS
+    _rdmt_n=$1; _rdmt_u=$2; _rdmt_src=$3; _rdmt_t=$4; _rdmt_e=$5
+    [ "$_rdmt_e" = 0 ] || continue
+    case "$_rdmt_u" in ''|*[!0-9]*) continue;; esac
+    [ -n "$_rdmt_t" ] || continue
+    case "$_rdmt_t" in
+      /storage/emulated/$_rdmt_u|/storage/emulated/$_rdmt_u/*)
+        _rdmt_v=$_rdmt_t; _rdmt_l="/data/media/$_rdmt_u${_rdmt_t#/storage/emulated/$_rdmt_u}" ;;
+      /data/media/$_rdmt_u|/data/media/$_rdmt_u/*)
+        _rdmt_l=$_rdmt_t; _rdmt_v="/storage/emulated/$_rdmt_u${_rdmt_t#/data/media/$_rdmt_u}" ;;
+      /*)
+        continue ;;
+      *)
+        _rdmt_l="/data/media/$_rdmt_u/$_rdmt_t"; _rdmt_v="/storage/emulated/$_rdmt_u/$_rdmt_t" ;;
+    esac
+    # Do not normalize a disabled duplicate if the same target is currently
+    # desired by another active row. This keeps profile pairs such as daily/work
+    # from fighting each other if users keep disabled helper rows around.
+    if [ -f "$PARSED/mounts.desired" ] && awk -F'|' -v u="$_rdmt_u" -v l="$_rdmt_l" '$2==u&&$5==l{found=1} END{exit found?0:1}' "$PARSED/mounts.desired" 2>/dev/null; then
+      continue
+    fi
+    restore_visible_target_after_unmount "$_rdmt_u" "$_rdmt_l" "$_rdmt_v" "${_rdmt_n:-$_rdmt_t}" "disabled_$_rdmt_reason" >/dev/null 2>&1 || true
+  done < "$_rdmt_cfg"
+  return 0
+}
 user_proc_pids() {
   # Include already-running apps of the target Android user.  Some ROMs give
   # MT/MediaProvider/ExternalStorage separate mount namespaces; binding only
@@ -1244,6 +1329,10 @@ core_ns_pids() {
 fast_foreground_reason() {
   case "$1" in
     boot_initial|user*_unlocked|user0_propwait|user0_filewatch|user_*_storage_ready_retry*) return 0 ;;
+    # v1.4.78: live mount.conf reloads should not foreground-scan every App
+    # namespace.  Mount changed rows into core namespaces first, then let the
+    # generation-fenced background worker refresh already-running apps.
+    config_event|config_event_retry|config_poll_fallback|manual|webui|profile_prerepair) return 0 ;;
   esac
   return 1
 }
@@ -1257,25 +1346,89 @@ mount_row_ns_foreground() {
   fi
 }
 
+ns_background_generation_set() {
+  _nbgs_v=$1
+  [ -n "$_nbgs_v" ] || return 1
+  _nbgs_tmp="$NS_BG_GEN.tmp.$$"
+  printf '%s\n' "$_nbgs_v" > "$_nbgs_tmp" 2>/dev/null || return 1
+  mv -f "$_nbgs_tmp" "$NS_BG_GEN" 2>/dev/null
+}
+
+ns_background_generation_current() {
+  _nbgc_v=$1
+  [ -n "$_nbgc_v" ] || return 1
+  [ "$(cat "$NS_BG_GEN" 2>/dev/null)" = "$_nbgc_v" ]
+}
+
+app_ns_pids_only() {
+  _anpo_u=$1
+  _anpo_base=''
+  _anpo_seen=''
+  # Build an exclusion set for init / MediaProvider / system_server / zygote /
+  # externalstorage / vold / sdcard namespaces. Background work must never
+  # mutate these core namespaces after the foreground transaction commits.
+  for _anpo_p in $(core_ns_pids_base "$_anpo_u"); do
+    case "$_anpo_p" in ''|*[!0-9]*) continue;; esac
+    _anpo_ns=$(pid_ns_id "$_anpo_p"); [ -n "$_anpo_ns" ] || continue
+    case " $_anpo_base " in *" $_anpo_ns "*) ;; *) _anpo_base="$_anpo_base $_anpo_ns";; esac
+  done
+  _anpo_lo=$((_anpo_u*100000+10000))
+  _anpo_hi=$((_anpo_u*100000+99999))
+  for _anpo_p in $(user_proc_pids "$_anpo_u"); do
+    case "$_anpo_p" in ''|*[!0-9]*) continue;; esac
+    _anpo_uid=$(awk '/^Uid:/{print $2;exit}' "/proc/$_anpo_p/status" 2>/dev/null)
+    case "$_anpo_uid" in ''|*[!0-9]*) continue;; esac
+    [ "$_anpo_uid" -ge "$_anpo_lo" ] && [ "$_anpo_uid" -le "$_anpo_hi" ] || continue
+    _anpo_ns=$(pid_ns_id "$_anpo_p"); [ -n "$_anpo_ns" ] || continue
+    case " $_anpo_base " in *" $_anpo_ns "*) continue;; esac
+    case " $_anpo_seen " in *" $_anpo_ns "*) continue;; esac
+    _anpo_seen="$_anpo_seen $_anpo_ns"
+    printf '%s\n' "$_anpo_p"
+  done
+}
+
+mount_app_ns_only() {
+  _mano_gen=$1; _mano_u=$2; _mano_src=$3; _mano_dst=$4; _mano_pol=${5:-preserve}
+  # bindfs_shared deliberately exists only in init + MediaProvider namespaces.
+  [ "$_mano_pol" = bindfs_shared ] && return 0
+  for _mano_pid in $(app_ns_pids_only "$_mano_u"); do
+    ns_background_generation_current "$_mano_gen" || return 75
+    ns_bind_pid "$_mano_pid" "$_mano_src" "$_mano_dst" >/dev/null 2>&1 || true
+  done
+  return 0
+}
+
+unmount_app_ns_only() {
+  _uano_gen=$1; _uano_u=$2; _uano_src=$3; _uano_dst=$4; _uano_pol=${5:-preserve}
+  [ "$_uano_pol" = bindfs_shared ] && return 0
+  for _uano_pid in $(app_ns_pids_only "$_uano_u"); do
+    ns_background_generation_current "$_uano_gen" || return 75
+    unmount_pid_if_ours "$_uano_pid" "$_uano_src" "$_uano_dst" "$_uano_pol" >/dev/null 2>&1 || true
+  done
+  return 0
+}
+
 mount_active_background_sync() {
   _mabs_file=$1; _mabs_reason=${2:-background}
   [ -f "$_mabs_file" ] || return 0
+  _mabs_tag="$$.$(date +%s 2>/dev/null)"
+  _mabs_gen="active.$_mabs_tag.$(cat "$APPLIED_HASH" 2>/dev/null)"
+  _mabs_tmp="$RUNTIME/ns_background_sync.$_mabs_tag.rows"
+  cp -f "$_mabs_file" "$_mabs_tmp" 2>/dev/null || return 0
+  ns_background_generation_set "$_mabs_gen" || { rm -f "$_mabs_tmp" 2>/dev/null; return 0; }
   (
-    _mabs_lock="$RUNTIME/ns_background_sync.lock"
-    if ! mkdir "$_mabs_lock" 2>/dev/null; then exit 0; fi
-    trap 'rmdir "$RUNTIME/ns_background_sync.lock" 2>/dev/null || true' EXIT INT TERM
+    trap 'rm -f "$_mabs_tmp" 2>/dev/null || true' EXIT INT TERM
     sleep 0.2
+    ns_background_generation_current "$_mabs_gen" || exit 0
     _mabs_scope=$(reason_user_scope "$_mabs_reason" 2>/dev/null || true)
-    _mabs_tmp="$RUNTIME/ns_background_sync.$$.rows"
-    cp -f "$_mabs_file" "$_mabs_tmp" 2>/dev/null || exit 0
-    logi "背景同步 App namespace 啟動｜原因=$_mabs_reason｜scope=${_mabs_scope:-all}"
+    logi "背景同步 App namespace 啟動｜原因=$_mabs_reason｜scope=${_mabs_scope:-all}｜generation=$_mabs_gen"
     while IFS='|' read -r _mabs_n _mabs_u _mabs_s _mabs_t _mabs_l _mabs_v _mabs_e _mabs_g _mabs_pv _mabs_pol _mabs_create _mabs_migrate; do
       [ -n "$_mabs_l" ] || continue
       row_scope_match "$_mabs_scope" "$_mabs_u" || continue
-      mount_row_ns "$_mabs_u" "$_mabs_s" "$_mabs_l" "$_mabs_pol" >/dev/null 2>&1 || true
+      ns_background_generation_current "$_mabs_gen" || { logi "背景同步 App namespace 已取消：generation 過期｜原因=$_mabs_reason"; exit 0; }
+      mount_app_ns_only "$_mabs_gen" "$_mabs_u" "$_mabs_s" "$_mabs_l" "$_mabs_pol" >/dev/null 2>&1 || true
     done < "$_mabs_tmp"
-    rm -f "$_mabs_tmp" 2>/dev/null || true
-    logi "背景同步 App namespace 完成｜原因=$_mabs_reason｜scope=${_mabs_scope:-all}"
+    ns_background_generation_current "$_mabs_gen" && logi "背景同步 App namespace 完成｜原因=$_mabs_reason｜scope=${_mabs_scope:-all}｜generation=$_mabs_gen"
   ) >/dev/null 2>&1 &
   return 0
 }
@@ -1451,6 +1604,16 @@ mount_row_ns() {
   fi
 }
 
+mount_row_ns_base() {
+  _mrb_u=$1; _mrb_src=$2; _mrb_dst=$3; _mrb_pol=$4
+  if [ "$_mrb_pol" = bindfs_shared ]; then
+    logi "使用 bindfs_shared 權限映射掛載｜User=$_mrb_u｜$_mrb_src → $_mrb_dst｜mode=v2-static-native-helper-mediaprovider-remount-lower-mediaprovider"
+    bindfs_all_ns "$_mrb_u" "$_mrb_src" "$_mrb_dst"
+  else
+    bind_all_ns_base "$_mrb_u" "$_mrb_src" "$_mrb_dst"
+  fi
+}
+
 pid_ns_id() { readlink "/proc/$1/ns/mnt" 2>/dev/null; }
 ns_bind_pid() {
   _pid=$1; _src=$2; _dst=$3
@@ -1492,17 +1655,108 @@ bind_all_ns_base() {
 }
 
 profile_ns_background_sync() {
-  _pbs_old=$1; _pbs_new=$2
+  _pbs_old=$1; _pbs_new=$2; _pbs_gen=$3
+  [ -n "$_pbs_gen" ] || return 0
+  _pbs_tag="$$.$(date +%s 2>/dev/null)"
+  _pbs_old_copy="$RUNTIME/profile.ns.old.$_pbs_tag.rows"
+  _pbs_new_copy="$RUNTIME/profile.ns.new.$_pbs_tag.rows"
+  : > "$_pbs_old_copy" 2>/dev/null || return 0
+  : > "$_pbs_new_copy" 2>/dev/null || { rm -f "$_pbs_old_copy" 2>/dev/null; return 0; }
+  [ -f "$_pbs_old" ] && cp -f "$_pbs_old" "$_pbs_old_copy" 2>/dev/null || true
+  [ -f "$_pbs_new" ] && cp -f "$_pbs_new" "$_pbs_new_copy" 2>/dev/null || true
   (
-    [ -f "$_pbs_old" ] && while IFS='|' read -r _bn _bu _bs _bt _bl _bv _be _bg _bpv _bpol _bc _bm; do
+    trap 'rm -f "$_pbs_old_copy" "$_pbs_new_copy" 2>/dev/null || true' EXIT INT TERM
+    ns_background_generation_current "$_pbs_gen" || exit 0
+    logi "Profile App namespace 背景同步啟動｜generation=$_pbs_gen"
+    while IFS='|' read -r _bn _bu _bs _bt _bl _bv _be _bg _bpv _bpol _bc _bm; do
       [ -n "$_bl" ] || continue
-      unmount_all_ns "$_bu" "$_bs" "$_bl" "$_bpol" >/dev/null 2>&1 || true
-    done < "$_pbs_old"
-    [ -f "$_pbs_new" ] && while IFS='|' read -r _bn _bu _bs _bt _bl _bv _be _bg _bpv _bpol _bc _bm; do
+      ns_background_generation_current "$_pbs_gen" || { logi "Profile App namespace 背景同步取消：generation 過期｜generation=$_pbs_gen"; exit 0; }
+      unmount_app_ns_only "$_pbs_gen" "$_bu" "$_bs" "$_bl" "$_bpol" >/dev/null 2>&1 || true
+    done < "$_pbs_old_copy"
+    while IFS='|' read -r _bn _bu _bs _bt _bl _bv _be _bg _bpv _bpol _bc _bm; do
       [ -n "$_bl" ] || continue
-      mount_row_ns "$_bu" "$_bs" "$_bl" "$_bpol" >/dev/null 2>&1 || true
-    done < "$_pbs_new"
+      ns_background_generation_current "$_pbs_gen" || { logi "Profile App namespace 背景同步取消：generation 過期｜generation=$_pbs_gen"; exit 0; }
+      mount_app_ns_only "$_pbs_gen" "$_bu" "$_bs" "$_bl" "$_bpol" >/dev/null 2>&1 || true
+    done < "$_pbs_new_copy"
+    ns_background_generation_current "$_pbs_gen" && logi "Profile App namespace 背景同步完成｜generation=$_pbs_gen"
   ) >/dev/null 2>&1 &
+  return 0
+}
+
+
+mounttx_profile_switch() {
+  _mtx_old=$1; _mtx_new=$2; _mtx_gen=$3; _mtx_tag=$4
+  [ -x "$MOUNTTX" ] || return 127
+  "$MOUNTTX" profile-switch \
+    --old "$_mtx_old" \
+    --new "$_mtx_new" \
+    --runtime "$RUNTIME" \
+    --moddir "$MODDIR" \
+    --data-dir "$DATA_DIR" \
+    --log "$LOG" \
+    --generation-file "$NS_BG_GEN" \
+    --generation "$_mtx_gen" \
+    --tag "$_mtx_tag" \
+    --timeout-ms 9000
+}
+
+profile_rows_has_bindfs() {
+  _prhb_file=$1
+  [ -f "$_prhb_file" ] || return 1
+  awk -F'|' '$10=="bindfs_shared"{found=1} END{exit found?0:1}' "$_prhb_file" 2>/dev/null
+}
+
+profile_native_preflight_rows() {
+  _pnpr_file=$1
+  [ -f "$_pnpr_file" ] || return 0
+  while IFS='|' read -r _pnpr_n _pnpr_u _pnpr_s _pnpr_t _pnpr_l _pnpr_v _pnpr_e _pnpr_g _pnpr_pv _pnpr_pol _pnpr_create _pnpr_migrate; do
+    [ -n "$_pnpr_l" ] || continue
+    if [ "$_pnpr_pol" = bindfs_shared ]; then
+      bindfs_ready || return 1
+      apply_bindfs_policy || return 1
+      ensure_media_pid "$_pnpr_u" >/dev/null 2>&1 || logw "Profile native bindfs_shared 尚未鎖定 MediaProvider，mounttx 將自行搜尋｜User=$_pnpr_u｜名稱=$_pnpr_n"
+    fi
+  done < "$_pnpr_file"
+  return 0
+}
+
+profile_rollback_rows() {
+  _prr_new=$1; _prr_old=$2; _prr_tag=$3; _prr_reason=${4:-switch_failed}
+  # Invalidate every older namespace worker before rollback touches mounts.
+  ns_background_generation_set "rollback.$_prr_tag" >/dev/null 2>&1 || true
+  logw "Profile rollback 開始｜原因=$_prr_reason｜tag=$_prr_tag"
+  if [ -f "$_prr_new" ]; then
+    while IFS='|' read -r _prr_n _prr_u _prr_s _prr_t _prr_l _prr_v _prr_e _prr_g _prr_pv _prr_pol _prr_c _prr_m; do
+      [ -n "$_prr_l" ] || continue
+      # Bounded foreground rollback: only core namespaces.  Never scan every app
+      # namespace here, because v1.4.71 repro shows that full namespace rollback
+      # can hang and leave the visible target unmounted.
+      unmount_all_ns_base "$_prr_u" "$_prr_s" "$_prr_l" "$_prr_pol" >/dev/null 2>&1 || true
+    done < "$_prr_new"
+  fi
+  _prr_fail=0
+  if [ -f "$_prr_old" ]; then
+    while IFS='|' read -r _prr_n _prr_u _prr_s _prr_t _prr_l _prr_v _prr_e _prr_g _prr_pv _prr_pol _prr_c _prr_m; do
+      [ -n "$_prr_l" ] || continue
+      _prr_try=0; _prr_ok=0
+      while [ "$_prr_try" -lt 4 ]; do
+        mount_row_ns_base "$_prr_u" "$_prr_s" "$_prr_l" "$_prr_pol" >/dev/null 2>&1 || true
+        if row_mounted "$_prr_u" "$_prr_s" "$_prr_l" "$_prr_pol"; then
+          if [ -z "$_prr_v" ] || visible_probe_retry "$_prr_u" "$_prr_s" "$_prr_v" "rollback:$_prr_n"; then _prr_ok=1; break; fi
+        fi
+        _prr_try=$((_prr_try+1))
+        sleep 0.18
+      done
+      if [ "$_prr_ok" -ne 1 ]; then
+        loge "Profile rollback 無法恢復舊掛載｜原因=$_prr_reason｜名稱=$_prr_n｜$_prr_s → $_prr_t"
+        _prr_fail=$((_prr_fail+1))
+      else
+        logi "Profile rollback 已驗證舊掛載｜原因=$_prr_reason｜名稱=$_prr_n｜$_prr_s → $_prr_t"
+      fi
+    done < "$_prr_old"
+  fi
+  [ "$_prr_fail" -eq 0 ] && logi "Profile rollback 完成｜原因=$_prr_reason｜tag=$_prr_tag" || loge "Profile rollback 完成但仍有失敗｜原因=$_prr_reason｜fail=$_prr_fail｜tag=$_prr_tag"
+  [ "$_prr_fail" -eq 0 ]
 }
 
 
@@ -1600,6 +1854,20 @@ visible_probe() {
   sleep 0.12
   if [ -e "$_rel" ] || { [ -n "$_pid" ] && nsenter -t "$_pid" -m -- test -e "$_rel" >/dev/null 2>&1; }; then rm -f "$_probe"; return 0; fi
   rm -f "$_probe"; return 1
+}
+
+visible_probe_retry() {
+  _vpr_u=$1; _vpr_src=$2; _vpr_vis=$3; _vpr_label=${4:-mount}
+  _vpr_try=0
+  for _vpr_delay in 0 0.12 0.25 0.45; do
+    [ "$_vpr_delay" = 0 ] || sleep "$_vpr_delay"
+    if visible_probe "$_vpr_u" "$_vpr_src" "$_vpr_vis"; then
+      [ "$_vpr_try" -gt 0 ] && logi "可見性驗證重試成功｜名稱=$_vpr_label｜路徑=$_vpr_vis｜try=$_vpr_try"
+      return 0
+    fi
+    _vpr_try=$((_vpr_try+1))
+  done
+  return 1
 }
 
 unmount_pid_if_ours() {
@@ -1851,7 +2119,29 @@ apply_reload() {
   esac
 
   rm -rf "$_txn_parsed" 2>/dev/null
-  if ! parse_config "$_txn_cfg" "$_txn_parsed"; then
+  _parse_ok=0
+  if parse_config "$_txn_cfg" "$_txn_parsed"; then
+    _parse_ok=1
+  else
+    # v1.4.77: retry every reload reason, not only confwatch/profile.
+    # Manual/WebUI apply can hit the same editor partial-write window, and a
+    # single invalid manual snapshot should not poison config.state until the
+    # live file has been re-sampled after a short settle.
+    _pri=1
+    for _psleep in 0.20 0.45 0.80; do
+      logw "mount.conf 解析失敗，可能仍在寫入中，稍後重試｜原因=$_reason｜retry=$_pri"
+      sleep "$_psleep"
+      rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null
+      _cfg_hash=$(config_snapshot_make "$_txn_cfg" 2>/dev/null || true)
+      if [ -n "$_cfg_hash" ] && parse_config "$_txn_cfg" "$_txn_parsed"; then
+        _parse_ok=1
+        logi "mount.conf 重試解析成功｜原因=$_reason｜retry=$_pri"
+        break
+      fi
+      _pri=$((_pri+1))
+    done
+  fi
+  if [ "$_parse_ok" -ne 1 ]; then
     # Full bind-row validation failed. Still try the root-only parser so a valid
     # block device/mount_point is mounted at boot and remains usable for debugging.
     _root_only="$RUNTIME/parsed.rootonly.$$"
@@ -1968,6 +2258,11 @@ apply_reload() {
     return "$_rc"
   fi
 
+  # Fence any older background namespace worker before this transaction can
+  # unmount or replace a target.  Older workers are best-effort only and must
+  # never outlive a newer foreground mount decision.
+  ns_background_generation_set "applytxn.$$.$_cfg_hash" >/dev/null 2>&1 || true
+
   printf '%s
 ' "$_newglobal" > "$GLOBAL_ACTIVE.tmp.$$"; mv -f "$GLOBAL_ACTIVE.tmp.$$" "$GLOBAL_ACTIVE"
   _next="$ACTIVE.next.$$"; : > "$_next"; _fail=0; _defer=0
@@ -1997,9 +2292,12 @@ apply_reload() {
       if [ -z "$_match" ] || [ "$_ms" != "$_s" ] || [ "$_mpol" != "$_pol" ]; then
         logi "卸載已刪除/變更項目｜名稱=$_n｜User=$_u｜目標=$_t｜舊策略=$_pol｜新策略=${_mpol:-none}"
         unmount_all_ns "$_u" "$_s" "$_l" "$_pol"
+        restore_visible_target_after_unmount "$_u" "$_l" "$_v" "$_n" "$_reason" >/dev/null 2>&1 || true
       fi
     done < "$ACTIVE"
   fi
+
+  restore_disabled_mount_targets_from_config "$_txn_cfg" "$_reason" >/dev/null 2>&1 || true
 
   while IFS='|' read -r _n _u _s _t _l _v _e _g _pv _pol _create _migrate; do
     [ -n "$_l" ] || continue
@@ -2180,6 +2478,14 @@ set_profile() {
   valid_id "$_sp_group" && valid_id "$_sp_value" || return 2
   [ -f "$CONF" ] || seed_config || return 2
 
+  # v1.4.77: if a previous manual/config reload failed during a partial
+  # editor write, try to repair the last-good parsed snapshot from the now
+  # stable live mount.conf before rejecting profile switches.
+  if ! config_state_valid || [ ! -f "$PARSED/profiles" ] || [ ! -f "$PARSED/mounts.all" ] || [ ! -f "$PARSED/mounts.desired" ]; then
+    logw "Profile 切換前檢測最後有效設定快照無效，先嘗試重新套用目前 mount.conf"
+    apply_reload profile_prerepair >/dev/null 2>&1 || true
+  fi
+
   # Fast profile transaction:
   # - never reparses live mount.conf on the normal profile path;
   # - uses the last-good parsed snapshot + applied hash as the authority;
@@ -2341,46 +2647,75 @@ set_profile() {
     return 7
   fi
 
-  # Tear down only changed targets.
-  while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
-    [ -n "$_sp_l" ] || continue
-    logi "Profile 快速切換：卸載舊來源｜名稱=$_sp_n｜$_sp_s → $_sp_t"
-    unmount_all_ns_base "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_pol"
-  done < "$_sp_changed_old"
+  # Invalidate every older App-namespace worker before changing the core
+  # namespaces. This closes the v1.4.70/v1.4.71 rapid-profile race where a
+  # previous background tail could unmount or remount the target after a newer
+  # profile had already committed.
+  _sp_fence_gen="profiletxn.$_sp_tag"
+  if ! ns_background_generation_set "$_sp_fence_gen"; then
+    loge "Profile 切換失敗：無法建立 namespace generation fence"
+    rm -f $_sp_cleanup 2>/dev/null
+    lock_release; trap - EXIT INT TERM
+    return 5
+  fi
 
-  _sp_switch_fail=0
+  # v1.4.74: foreground Profile mount transaction is native-only.
+  # mounttx owns: core namespace unmount/mount, bindfs_shared orchestration,
+  # visible probe retry, and rollback.  Shell only prepares source dirs and
+  # commits config/parsed/active state after native success.
+  if [ ! -x "$MOUNTTX" ]; then
+    loge "Profile 切換失敗：缺少 native mounttx，v1.4.74 不再用 shell 執行前景掛載交易｜path=$MOUNTTX"
+    rm -f $_sp_cleanup 2>/dev/null
+    lock_release; trap - EXIT INT TERM
+    return 127
+  fi
+  profile_native_preflight_rows "$_sp_changed_new" || {
+    loge "Profile native 預檢失敗：bindfs_shared 依賴或 policy 未就緒"
+    rm -f $_sp_cleanup 2>/dev/null
+    lock_release; trap - EXIT INT TERM
+    return 9
+  }
+  profile_native_preflight_rows "$_sp_changed_old" >/dev/null 2>&1 || true
   while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
     [ -n "$_sp_l" ] || continue
     migrate_once "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_migrate" || true
-    if [ "$_sp_pol" = bindfs_shared ]; then mount_row_ns "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_pol" || { _sp_switch_fail=1; break; }; else bind_all_ns_base "$_sp_u" "$_sp_s" "$_sp_l" || { _sp_switch_fail=1; break; }; fi
-    if [ -n "$_sp_v" ]; then
-      if visible_probe "$_sp_u" "$_sp_s" "$_sp_v"; then
-        logi "Profile 快速切換：手機儲存已可看到掛載｜名稱=$_sp_n｜User=$_sp_u｜路徑=$_sp_v"
-        media_scan_schedule_visible "$_sp_u" "$_sp_v" "profile_change" >/dev/null 2>&1 || true
-      else
-        logw "Profile 快速切換：手機儲存可見性驗證失敗｜名稱=$_sp_n｜$_sp_v"
-        _sp_switch_fail=1; break
-      fi
-    fi
-    logi "Profile 快速切換成功｜名稱=$_sp_n｜$_sp_s → $_sp_t"
   done < "$_sp_changed_new"
 
+  logi "Profile native transaction 呼叫 mounttx｜group=$_sp_group｜$_sp_current → $_sp_value｜old=$(wc -l < "$_sp_changed_old" 2>/dev/null)｜new=$(wc -l < "$_sp_changed_new" 2>/dev/null)"
+  mounttx_profile_switch "$_sp_changed_old" "$_sp_changed_new" "$_sp_fence_gen" "$_sp_tag"
+  _sp_mtx_rc=$?
+  _sp_switch_fail=0
+  case "$_sp_mtx_rc" in
+    0)
+      while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
+        [ -n "$_sp_l" ] || continue
+        [ -n "$_sp_v" ] && media_scan_schedule_visible "$_sp_u" "$_sp_v" "profile_change" >/dev/null 2>&1 || true
+        logi "Profile native 切換成功｜名稱=$_sp_n｜$_sp_s → $_sp_t"
+      done < "$_sp_changed_new"
+      ;;
+    10)
+      loge "Profile native 切換失敗，mounttx 已驗證 rollback 回上一個掛載狀態｜group=$_sp_group｜value=$_sp_value"
+      _sp_switch_fail=1; _sp_fail_rc=10
+      ;;
+    11)
+      loge "Profile native 切換失敗且 mounttx rollback 驗證失敗｜group=$_sp_group｜value=$_sp_value"
+      _sp_switch_fail=1; _sp_fail_rc=11
+      ;;
+    *)
+      loge "Profile native transaction 異常返回｜rc=$_sp_mtx_rc｜嘗試 shell recovery rollback"
+      if profile_rollback_rows "$_sp_changed_new" "$_sp_changed_old" "$_sp_tag" "mounttx_rc_$_sp_mtx_rc"; then
+        _sp_switch_fail=1; _sp_fail_rc=10
+      else
+        _sp_switch_fail=1; _sp_fail_rc=11
+      fi
+      ;;
+  esac
+
   if [ "$_sp_switch_fail" -ne 0 ]; then
-    # Remove any partially applied new profile and restore the last-known-good
-    # active rows. The live mount.conf has not been changed yet.
-    while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
-      [ -n "$_sp_l" ] || continue
-      unmount_all_ns "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_pol"
-    done < "$_sp_changed_new"
-    while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
-      [ -n "$_sp_l" ] || continue
-      mount_row_ns "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_pol" >/dev/null 2>&1 || true
-    done < "$_sp_changed_old"
-    loge "Profile 快速切換失敗，已回復上一個掛載狀態｜group=$_sp_group｜value=$_sp_value"
     notify_post "YAWAsau Mount" "Profile 切換失敗：$_sp_group → $_sp_value" "profile_failed"
     rm -f $_sp_cleanup 2>/dev/null
     lock_release; trap - EXIT INT TERM
-    return 10
+    return "$_sp_fail_rc"
   fi
 
   # Mounts are verified first; only now publish the new config and last-good
@@ -2388,25 +2723,14 @@ set_profile() {
   # a profile that was not actually mounted.
   _sp_new_hash=$(config_hash "$_sp_conf_new" 2>/dev/null || true)
   [ -n "$_sp_new_hash" ] || {
-    # Extremely defensive rollback; should never happen for a regular file.
-    while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
-      [ -n "$_sp_l" ] || continue; unmount_all_ns "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_pol"
-    done < "$_sp_changed_new"
-    while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
-      [ -n "$_sp_l" ] || continue; mount_row_ns "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_pol" >/dev/null 2>&1 || true
-    done < "$_sp_changed_old"
+    profile_rollback_rows "$_sp_changed_new" "$_sp_changed_old" "$_sp_tag" new_hash_failed >/dev/null 2>&1 || true
     rm -f $_sp_cleanup 2>/dev/null
     lock_release; trap - EXIT INT TERM
     return 6
   }
 
   mv -f "$_sp_conf_new" "$CONF" || {
-    while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
-      [ -n "$_sp_l" ] || continue; unmount_all_ns "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_pol"
-    done < "$_sp_changed_new"
-    while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
-      [ -n "$_sp_l" ] || continue; mount_row_ns "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_pol" >/dev/null 2>&1 || true
-    done < "$_sp_changed_old"
+    profile_rollback_rows "$_sp_changed_new" "$_sp_changed_old" "$_sp_tag" config_publish_failed >/dev/null 2>&1 || true
     rm -f $_sp_cleanup 2>/dev/null
     lock_release; trap - EXIT INT TERM
     return 6
@@ -2430,7 +2754,12 @@ set_profile() {
   config_state_write valid 0 profile_change "$_sp_new_hash" >/dev/null 2>&1 || true
   logi "Profile 已快速切換｜group=$_sp_group｜$_sp_current → $_sp_value"
   notify_post "YAWAsau Mount" "Profile 已切換：$_sp_group｜$_sp_current → $_sp_value" "profile_$_sp_group"
-  profile_ns_background_sync "$_sp_changed_old" "$_sp_changed_new"
+  _sp_commit_gen="profile.$_sp_tag.$_sp_new_hash"
+  if ns_background_generation_set "$_sp_commit_gen"; then
+    profile_ns_background_sync "$_sp_changed_old" "$_sp_changed_new" "$_sp_commit_gen"
+  else
+    logw "Profile 已提交，但 App namespace 背景同步 generation 建立失敗；核心 namespace 掛載保持有效"
+  fi
 
   rm -f $_sp_cleanup 2>/dev/null
   lock_release; trap - EXIT INT TERM

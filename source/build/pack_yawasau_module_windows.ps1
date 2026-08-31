@@ -14,7 +14,7 @@ $ModuleRoot = [System.IO.Path]::GetFullPath($ModuleRoot)
 if ([string]::IsNullOrWhiteSpace($NativeOut)) { $NativeOut = Join-Path $ModuleRoot 'native_out' }
 $NativeOut = [System.IO.Path]::GetFullPath($NativeOut)
 if ([string]::IsNullOrWhiteSpace($OutZip)) {
-    $OutZip = Join-Path (Split-Path -Parent $ModuleRoot) 'YAWAsau_Mount_v1.4.70_fast_unlock_mount_module_20260826.zip'
+    $OutZip = Join-Path (Split-Path -Parent $ModuleRoot) 'YAWAsau_Mount_v1.4.81_remove_notify_real_id_profile_dedup_module_20260830.zip'
 }
 
 function Fail([string]$m) { throw $m }
@@ -59,7 +59,9 @@ function AddZipFile([System.IO.Compression.ZipArchive]$Zip, [string]$BaseDir, [s
 $bindfs = ResolveNativeOutFile (Join-Path $NativeOut 'bin\bindfs') (Join-Path $NativeOut 'native_out\bin\bindfs') 'native_out\bin\bindfs'
 $mountFuse3 = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mount.fuse3') (Join-Path $NativeOut 'native_out\bin\mount.fuse3') 'native_out\bin\mount.fuse3'
 $mountFusefs = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mount_fusefs') (Join-Path $NativeOut 'native_out\bin\mount_fusefs') 'native_out\bin\mount_fusefs'
-$Stage = Join-Path $ModuleRoot '.pack_stage_v1468'
+$mounttx = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mounttx') (Join-Path $NativeOut 'native_out\bin\mounttx') 'native_out\bin\mounttx'
+$confwatch = ResolveNativeOutFile (Join-Path $NativeOut 'bin\confwatch') (Join-Path $NativeOut 'native_out\bin\confwatch') 'native_out\bin\confwatch'
+$Stage = Join-Path $ModuleRoot '.pack_stage_v1472'
 if (Test-Path -LiteralPath $Stage) { Remove-Item -LiteralPath $Stage -Recurse -Force }
 New-Item -ItemType Directory -Path $Stage -Force | Out-Null
 
@@ -83,6 +85,8 @@ EnsureDir (Join-Path $Stage 'bin')
 Copy-Item -LiteralPath $bindfs -Destination (Join-Path $Stage 'bin\bindfs') -Force
 Copy-Item -LiteralPath $mountFuse3 -Destination (Join-Path $Stage 'bin\mount.fuse3') -Force
 Copy-Item -LiteralPath $mountFusefs -Destination (Join-Path $Stage 'bin\mount_fusefs') -Force
+Copy-Item -LiteralPath $mounttx -Destination (Join-Path $Stage 'bin\mounttx') -Force
+Copy-Item -LiteralPath $confwatch -Destination (Join-Path $Stage 'bin\confwatch') -Force
 # v1.4.55: libfuse3 is linked statically into bindfs; do not bundle libs/libfuse3.so or lib/libfuse3.so.
 $sha = Join-Path $NativeOut 'SHA256SUMS.txt'
 if (Test-Path -LiteralPath $sha -PathType Leaf) { Copy-Item -LiteralPath $sha -Destination (Join-Path $Stage 'NATIVE_SHA256SUMS.txt') -Force }
@@ -130,5 +134,6 @@ Write-Host '  bin/bindfs -> /data/adb/modules/dcimswitch/bin/bindfs'
 Write-Host '  libfuse3.so: not bundled; statically linked into bin/bindfs'
 Write-Host '  bin/mount.fuse3 -> /data/adb/modules/dcimswitch/bin/mount.fuse3'
 Write-Host '  bin/mount_fusefs -> /data/adb/modules/dcimswitch/bin/mount_fusefs'
+Write-Host '  bin/mounttx -> /data/adb/modules/dcimswitch/bin/mounttx'
 if ($IncludeMagiskPolicy) { Write-Host '  bin/magiskpolicy -> /data/adb/modules/dcimswitch/bin/magiskpolicy' } else { Write-Host '  magiskpolicy: not bundled unless -IncludeMagiskPolicy is supplied and native_out/bin/magiskpolicy exists' }
 if ($RequireClassesDex) { Write-Host '  bin/classes.dex -> /data/adb/modules/dcimswitch/bin/classes.dex (required for Dex-only notifications)' }

@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $ModuleRoot = $Root
 $DexRoot = Join-Path $Root 'source\dex_notify'
-$OutZip = Join-Path $Root 'YAWAsau_Mount_v1.4.70_fast_unlock_mount_module_20260826.zip'
+$OutZip = Join-Path $Root 'YAWAsau_Mount_v1.4.72_profile_ns_generation_fence_module_20260830.zip'
 if (!$PackOnly -and !$SkipDexBuild) {
   if (!(Test-Path -LiteralPath $JavaHome)) { throw "JAVA_HOME not found: $JavaHome" }
   if (!(Test-Path -LiteralPath $SdkPath)) { throw "Android SDK not found: $SdkPath" }

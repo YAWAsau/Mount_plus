@@ -38,7 +38,7 @@ Set-Location $RootDir
 $LogPath = Join-Path $ScriptDir 'build_yawasau_native_windows.log'
 if (Test-Path -LiteralPath $LogPath) { Remove-Item -LiteralPath $LogPath -Force }
 
-# v1.4.70: native source restored; for notification builds prefer build_yawasau_full_module_windows.ps1 so classes.dex is packaged. A plain
+# v1.4.72: native source restored; for notification builds prefer build_yawasau_full_module_windows.ps1 so classes.dex is packaged. A plain
 #   .\build_yawasau_native_windows.ps1
 # builds static bindfs/libfuse3 and native mount.fuse3 helper, then reuses the bundled
 # known-good magiskpolicy unless -BuildMagiskPolicy is explicitly supplied. This avoids
@@ -1121,6 +1121,31 @@ chmod +x "`$OUT/bin/bindfs" 2>/dev/null || true
     Run-Checked -Title 'verify static-fuse bindfs' -Exe 'powershell' -ArgList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$verifyScript,'-Readelf',$readelf,'-Binary',$bindfsOut,'-Mode','android-exe','-ExpectedLoadAlign',$alignHex,'-ExpectedRelroEndAlign',$alignHex,'-AllowedNeeded','libc.so,libdl.so','-RequireLibc')
 }
 
+
+# v1.4.78: native stable-content confwatch. It keeps inotify, inode-rename
+# recovery and content hash debounce inside the native helper, so service.sh no
+# longer needs a permanent shell cksum/sleep polling loop.
+$confwatchSrc = Join-Path $RootDir 'source\confwatch.c'
+$confwatchStart = Join-Path $RootDir 'source\confwatch_start.S'
+Need-File $confwatchSrc 'confwatch.c'
+Need-File $confwatchStart 'confwatch_start.S'
+$confwatchOut = Join-Path $outPath 'bin\confwatch'
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $confwatchOut) | Out-Null
+$clangExe = Join-Path $toolchain 'bin\clang.exe'
+Need-File $clangExe 'NDK clang.exe'
+$sysroot = Join-Path $toolchain 'sysroot'
+$target = "aarch64-linux-android$Api"
+Run-Checked -Title 'build native confwatch stable-content watcher' -Exe $clangExe -ArgList @(
+    "--target=$target",
+    '-nostdlib','-static',
+    '-Wall','-Wextra','-Werror','-O2',
+    "-Wl,-z,max-page-size=$PageSize",
+    "-Wl,-z,common-page-size=$PageSize",
+    '-o',$confwatchOut,$confwatchStart,$confwatchSrc
+)
+Run-Checked -Title 'strip native confwatch helper' -Exe $strip -ArgList @('--strip-all', $confwatchOut)
+Run-Checked -Title 'verify native confwatch helper' -Exe 'powershell' -ArgList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$verifyScript,'-Readelf',$readelf,'-Binary',$confwatchOut,'-Mode','static-nolibc','-ExpectedLoadAlign',$alignHex,'-ExpectedRelroEndAlign',$alignHex)
+
 # v1.4.62: always build the native mount.fuse3 helper used by static libfuse.
 $helperSrc = Join-Path $RootDir 'source\mount_fuse3_helper.c'
 Need-File $helperSrc 'mount_fuse3_helper.c'
@@ -1142,6 +1167,23 @@ Run-Checked -Title 'build native mount.fuse3 helper' -Exe $clangExe -ArgList @(
 Run-Checked -Title 'strip native mount.fuse3 helper' -Exe $strip -ArgList @('--strip-all', $helperOut)
 Run-Checked -Title 'verify native mount.fuse3 helper' -Exe 'powershell' -ArgList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$verifyScript,'-Readelf',$readelf,'-Binary',$helperOut,'-Mode','android-exe','-ExpectedLoadAlign',$alignHex,'-ExpectedRelroEndAlign',$alignHex,'-AllowedNeeded','libc.so,libdl.so','-RequireLibc')
 Copy-Item -LiteralPath $helperOut -Destination $helperAlias -Force
+
+
+# v1.4.74: native Profile transaction helper.  It owns foreground
+# kernel-bind / bindfs_shared switching, visible probe retry, and rollback.
+$mounttxSrc = Join-Path $RootDir 'source\mounttx.c'
+Need-File $mounttxSrc 'mounttx.c'
+$mounttxOut = Join-Path $outPath 'bin\mounttx'
+Run-Checked -Title 'build native mounttx profile transaction helper' -Exe $clangExe -ArgList @(
+    "--target=$target",
+    "--sysroot=$sysroot",
+    '-std=gnu11','-Wall','-Wextra','-Werror','-O2','-fPIE','-pie',
+    "-Wl,-z,max-page-size=$PageSize",
+    "-Wl,-z,common-page-size=$PageSize",
+    '-o',$mounttxOut,$mounttxSrc
+)
+Run-Checked -Title 'strip native mounttx helper' -Exe $strip -ArgList @('--strip-all', $mounttxOut)
+Run-Checked -Title 'verify native mounttx helper' -Exe 'powershell' -ArgList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$verifyScript,'-Readelf',$readelf,'-Binary',$mounttxOut,'-Mode','android-exe','-ExpectedLoadAlign',$alignHex,'-ExpectedRelroEndAlign',$alignHex,'-AllowedNeeded','libc.so,libdl.so','-RequireLibc')
 
 if ($BuildMagiskPolicy) {
     if ([string]::IsNullOrWhiteSpace($MagiskSrc)) { $MagiskSrc = Join-Path $RootDir 'third_party\Magisk' }
@@ -1244,6 +1286,7 @@ Log 'Module runtime paths after packing:'
 Log '  /data/adb/modules/dcimswitch/bin/bindfs (static-fuse; no libfuse3.so runtime dependency)'
 Log '  /data/adb/modules/dcimswitch/bin/mount.fuse3 (native mount helper)'
 Log '  /data/adb/modules/dcimswitch/bin/mount_fusefs (native mount helper alias)'
+Log '  /data/adb/modules/dcimswitch/bin/mounttx (native profile transaction helper)'
 Log '  optional: /data/adb/modules/dcimswitch/bin/magiskpolicy'
 Log 'Legacy manual fallback remains supported under /data/adb/dcimswitch/native/.'
 

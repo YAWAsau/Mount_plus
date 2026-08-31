@@ -3,7 +3,7 @@ MODID=dcimswitch
 DATA_DIR=/data/adb/dcimswitch
 CONF="$DATA_DIR/mount.conf"
 
-ui_print '── YAWAsau Mount v1.4.70 安裝 ──'
+ui_print '── YAWAsau Mount v1.4.72 安裝 ──'
 ui_print '檢查環境：arm64 / Dex 通知 / static bindfs'
 [ "$ARCH" = arm64 ] || abort '不支援的架構：本模組只支援 arm64-v8a'
 
@@ -66,7 +66,7 @@ rm -f "$DATA_DIR/runtime/active_mounts.tsv" "$DATA_DIR/runtime/global.active" "$
 
 ui_print '設定權限...'
 set_perm_recursive "$MODPATH" 0 0 0755 0644
-for _f in service.sh mount.sh control.sh action.sh uninstall.sh bin/propwait bin/filewatch bin/confwatch bin/bindfs_mount.sh bin/bindfs bin/mount.fuse3 bin/mount_fusefs bin/magiskpolicy bin/classes.dex bin/notify_client.sh; do [ -e "$MODPATH/$_f" ] && set_perm "$MODPATH/$_f" 0 0 0755; done
+for _f in service.sh mount.sh control.sh action.sh uninstall.sh bin/propwait bin/filewatch bin/confwatch bin/bindfs_mount.sh bin/bindfs bin/mount.fuse3 bin/mount_fusefs bin/magiskpolicy bin/mounttx bin/classes.dex bin/notify_client.sh; do [ -e "$MODPATH/$_f" ] && set_perm "$MODPATH/$_f" 0 0 0755; done
 set_perm "$MODPATH/core.sh" 0 0 0644
 [ -f "$MODPATH/sepolicy.rule" ] && set_perm "$MODPATH/sepolicy.rule" 0 0 0644
 
