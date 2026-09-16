@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.81-remove-notify-real-id-profile-dedup
+# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.87-profile-confwatch-race-dedup
 # Internal library only. mount.conf is parsed as data; it is never sourced.
 
 MODDIR=${MODDIR:-${0%/*}}
@@ -13,6 +13,7 @@ EXAMPLE_CONF="$MODDIR/mount.conf.example"
 [ -f "$EXAMPLE_CONF" ] || EXAMPLE_CONF="$MODDIR/mount.conf"
 LOG="$RUNTIME/mount.log"
 ACTIVE="$RUNTIME/active_mounts.tsv"
+ACTIVE_SRC_STATE="$RUNTIME/active_source_state.tsv"
 GLOBAL_ACTIVE="$RUNTIME/global.active"
 PARSED_REAL="$RUNTIME/parsed"
 PARSED="$PARSED_REAL"
@@ -45,8 +46,9 @@ POLICY_FILE="$MODDIR/sepolicy.rule"
 BIND_POLICY_MARK="$RUNTIME/bindfs_policy.applied"
 CONFIG_STATE="$RUNTIME/config.state"
 APPLIED_HASH="$RUNTIME/config.applied.cksum"
+PROFILE_INTERNAL_EVENT="$RUNTIME/profile_internal.conf_event"
 NS_BG_GEN="$RUNTIME/ns_background.generation"
-MODULE_VERSION=v1.4.81-remove-notify-real-id-profile-dedup-20260830
+MODULE_VERSION=v1.4.87-profile-confwatch-race-dedup-20260912
 mkdir -p "$RUNTIME" "$PARSED" 2>/dev/null
 DELIM='|'
 
@@ -364,6 +366,138 @@ realp() { readlink -f "$1" 2>/dev/null || printf '%s\n' "$1"; }
 stat_sig_ns1() { ns1 stat -c '%d:%i' "$1" 2>/dev/null; }
 same_ns1() { _a=$(stat_sig_ns1 "$1"); _b=$(stat_sig_ns1 "$2"); [ -n "$_a" ] && [ "$_a" = "$_b" ]; }
 
+source_sig() {
+  # Device+inode of the current source directory.  This is deliberately path-based:
+  # if the user deletes /data/speed_debug while bindfs is still mounted and then
+  # recreates the same path, the new directory has a different signature and the
+  # existing FUSE/bind view must be torn down and rebuilt.
+  _ss_path=$1
+  [ -n "$_ss_path" ] || return 1
+  stat -L -c '%d:%i' "$_ss_path" 2>/dev/null || stat -c '%d:%i' "$_ss_path" 2>/dev/null
+}
+
+active_source_state_append() {
+  _assa_file=$1; _assa_u=$2; _assa_l=$3; _assa_s=$4; _assa_pol=$5
+  [ -n "$_assa_file" ] || return 0
+  _assa_sig=$(source_sig "$_assa_s" 2>/dev/null || true)
+  [ -n "$_assa_sig" ] || return 0
+  printf '%s|%s|%s|%s|%s\n' "$_assa_u" "$_assa_l" "$_assa_s" "$_assa_pol" "$_assa_sig" >> "$_assa_file" 2>/dev/null || true
+}
+
+active_source_sig_lookup() {
+  _assl_u=$1; _assl_l=$2; _assl_s=$3; _assl_pol=$4
+  [ -f "$ACTIVE_SRC_STATE" ] || return 1
+  awk -F'|' -v u="$_assl_u" -v l="$_assl_l" -v s="$_assl_s" -v p="$_assl_pol" '$1==u&&$2==l&&$3==s&&$4==p{print $5;exit}' "$ACTIVE_SRC_STATE" 2>/dev/null
+}
+
+row_source_needs_refresh() {
+  _rsnr_u=$1; _rsnr_s=$2; _rsnr_l=$3; _rsnr_pol=$4
+  _rsnr_cur=$(source_sig "$_rsnr_s" 2>/dev/null || true)
+  _rsnr_prev=$(active_source_sig_lookup "$_rsnr_u" "$_rsnr_l" "$_rsnr_s" "$_rsnr_pol" 2>/dev/null || true)
+  if [ -z "$_rsnr_cur" ]; then
+    # If the target still looks mounted but the source path has disappeared,
+    # the active entry is stale.  Let the normal path recreate it when create=1,
+    # or fail visibly instead of preserving a bind/FUSE view of a deleted dentry.
+    return 0
+  fi
+  if [ -z "$_rsnr_prev" ]; then
+    # v1.4.83 upgrade/self-heal: existing installations do not have source
+    # fingerprints yet.  Rebuild bindfs_shared rows once so a deleted/recreated
+    # source path is repaired without requiring a reboot.
+    [ "$_rsnr_pol" = bindfs_shared ] && return 0
+    return 1
+  fi
+  [ "$_rsnr_cur" != "$_rsnr_prev" ]
+}
+
+active_source_state_rebuild_from_active() {
+  _assr_active=${1:-$ACTIVE}
+  _assr_out=$2
+  [ -n "$_assr_out" ] || return 0
+  : > "$_assr_out" 2>/dev/null || return 0
+  [ -f "$_assr_active" ] || return 0
+  while IFS='|' read -r _assr_n _assr_u _assr_s _assr_t _assr_l _assr_v _assr_e _assr_g _assr_pv _assr_pol _assr_c _assr_m; do
+    [ -n "$_assr_l" ] || continue
+    active_source_state_append "$_assr_out" "$_assr_u" "$_assr_l" "$_assr_s" "$_assr_pol"
+  done < "$_assr_active"
+}
+
+active_sources_need_refresh_for_file() {
+  _asrf_file=${1:-$ACTIVE}
+  [ -f "$_asrf_file" ] || return 1
+  while IFS='|' read -r _asrf_n _asrf_u _asrf_s _asrf_t _asrf_l _asrf_v _asrf_e _asrf_g _asrf_pv _asrf_pol _asrf_c _asrf_m; do
+    [ -n "$_asrf_l" ] || continue
+    row_source_needs_refresh "$_asrf_u" "$_asrf_s" "$_asrf_l" "$_asrf_pol" && return 0
+  done < "$_asrf_file"
+  return 1
+}
+
+bindfs_kill_target() {
+  # Lazy umount usually makes the userspace bindfs process exit, but when the
+  # source root has been deleted/recreated the old process may still keep the old
+  # dentry alive.  Kill only processes whose cmdline contains this exact target.
+  _bkt_dst=$1
+  [ -n "$_bkt_dst" ] || return 0
+  for _bkt_d in /proc/[0-9]*; do
+    [ -r "$_bkt_d/cmdline" ] || continue
+    _bkt_pid=${_bkt_d##*/}
+    case "$_bkt_pid" in ''|*[!0-9]*) continue;; esac
+    _bkt_cmd=$(tr '\0' ' ' < "$_bkt_d/cmdline" 2>/dev/null)
+    case "$_bkt_cmd" in
+      *bindfs*"$_bkt_dst"*|*"$_bkt_dst"*bindfs*)
+        kill -TERM "$_bkt_pid" 2>/dev/null || true
+        ;;
+    esac
+  done
+  sleep 0.05
+  for _bkt_d in /proc/[0-9]*; do
+    [ -r "$_bkt_d/cmdline" ] || continue
+    _bkt_pid=${_bkt_d##*/}
+    case "$_bkt_pid" in ''|*[!0-9]*) continue;; esac
+    _bkt_cmd=$(tr '\0' ' ' < "$_bkt_d/cmdline" 2>/dev/null)
+    case "$_bkt_cmd" in
+      *bindfs*"$_bkt_dst"*|*"$_bkt_dst"*bindfs*)
+        kill -KILL "$_bkt_pid" 2>/dev/null || true
+        ;;
+    esac
+  done
+  return 0
+}
+
+refresh_stale_source_mount_if_needed() {
+  _rssm_n=$1; _rssm_u=$2; _rssm_s=$3; _rssm_t=$4; _rssm_l=$5; _rssm_v=$6; _rssm_pol=$7; _rssm_create=${8:-1}; _rssm_migrate=${9:-none}
+  SOURCE_REFRESH_NATIVE_DONE=0
+  if row_source_needs_refresh "$_rssm_u" "$_rssm_s" "$_rssm_l" "$_rssm_pol"; then
+    _rssm_cur=$(source_sig "$_rssm_s" 2>/dev/null || true)
+    _rssm_prev=$(active_source_sig_lookup "$_rssm_u" "$_rssm_l" "$_rssm_s" "$_rssm_pol" 2>/dev/null || true)
+    logw "來源目錄 inode 已變更或缺少基準，強制重建掛載｜名稱=$_rssm_n｜User=$_rssm_u｜來源=$_rssm_s｜目標=$_rssm_t｜policy=$_rssm_pol｜old=${_rssm_prev:-none}｜new=${_rssm_cur:-unknown}｜mode=native-source-refresh"
+
+    _rssm_gen=$(cat "$NS_BG_GEN" 2>/dev/null)
+    [ -n "$_rssm_gen" ] || _rssm_gen="source_refresh.$$"
+    _rssm_tag="source_refresh.$$.$(date +%s 2>/dev/null || echo 0)"
+    _rssm_rows="$RUNTIME/source.refresh.$$.rows"
+    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s
+' \
+      "$_rssm_n" "$_rssm_u" "$_rssm_s" "$_rssm_t" "$_rssm_l" "$_rssm_v" "1" "" "" "$_rssm_pol" "$_rssm_create" "$_rssm_migrate" > "$_rssm_rows" 2>/dev/null || _rssm_rows=''
+    if [ -n "$_rssm_rows" ] && mounttx_source_refresh "$_rssm_rows" "$_rssm_gen" "$_rssm_tag"; then
+      SOURCE_REFRESH_NATIVE_DONE=1
+      rm -f "$_rssm_rows" 2>/dev/null || true
+      return 0
+    fi
+    _rssm_rc=$?
+    rm -f "$_rssm_rows" 2>/dev/null || true
+    logw "native source-refresh 未完成，回退 core-only shell 修復｜名稱=$_rssm_n｜rc=$_rssm_rc"
+
+    # Compatibility fallback: only used when an older mounttx is installed or
+    # native refresh fails.  The intended v1.4.86 path is mounttx source-refresh.
+    unmount_all_ns_base "$_rssm_u" "$_rssm_s" "$_rssm_l" "$_rssm_pol" >/dev/null 2>&1 || true
+    restore_visible_target_after_unmount "$_rssm_u" "$_rssm_l" "$_rssm_v" "$_rssm_n" "source_refresh" >/dev/null 2>&1 || true
+    return 0
+  fi
+  return 1
+}
+
+
 config_semantic_normalize() {
   # Used only to recognize the untouched v1.2.0 stock config during upgrade.
   # Comments/blank lines and removed legacy keys do not affect the comparison.
@@ -554,7 +688,7 @@ parse_config() {
   _cfg=${1:-$CONF}; _out=${2:-$PARSED}
   [ -f "$_cfg" ] || { loge "設定檔不存在｜$_cfg"; return 2; }
   _tmp="$_out.tmp.$$"; rm -rf "$_tmp" 2>/dev/null; mkdir -p "$_tmp" || return 2
-  _partition=''; _mp=''; _fs=auto
+  _partition=''; _mp=''; _fs=auto; _vgq=auto
   # First pass: collect global keys before parsing mount rows. This lets source
   # paths use relative syntax even if a user puts mount rows after comments or dirs.
   while IFS= read -r _gline || [ -n "$_gline" ]; do
@@ -563,6 +697,7 @@ parse_config() {
       partition=*) _partition=${_gline#partition=} ;;
       mount_point=*) _mp=${_gline#mount_point=} ;;
       fs=*) _fs=${_gline#fs=} ;;
+      vendor_gallery_quiesce=*) _vgq=${_gline#vendor_gallery_quiesce=} ;;
     esac
   done < "$_cfg"
   : > "$_tmp/profiles"; : > "$_tmp/dirs"; : > "$_tmp/mounts.all"
@@ -572,7 +707,7 @@ parse_config() {
     case "$_line" in ''|'#'*) continue;; esac
     case "$_line" in
       version=*) ;;
-      partition=*|mount_point=*|fs=*) ;;
+      partition=*|mount_point=*|fs=*|vendor_gallery_quiesce=*) ;;
       dir=*)
         _dv=${_line#dir=}; _dp=${_dv%%|*}; [ "$_dp" != "$_dv" ] || { loge "mount.conf 第 $_lineno 行 dir 格式錯誤"; _err=1; continue; }
         _dpol=${_dv#*|}; _dp_norm=$(normalize_source "$_mp" "$_dp") || { loge "mount.conf 第 $_lineno 行 dir 路徑無效/含 traversal"; _err=1; continue; }
@@ -630,6 +765,7 @@ parse_config() {
   [ -n "$_mp" ] || { loge "mount_point 必填：請填主分區掛載位置，例如 mount_point=/mnt/YAWAsau"; _err=1; }
   [ -z "$_mp" ] || valid_safe_abs "$_mp" || { loge "mount_point 路徑無效/含 traversal"; _err=1; }
   case "$_fs" in auto|f2fs|ext4) ;; *) loge "fs 只接受 auto/f2fs/ext4"; _err=1;; esac
+  case "$_vgq" in auto|off|force) ;; *) loge "vendor_gallery_quiesce 只接受 auto/off/force"; _err=1;; esac
   # profile lines must be unique
   if [ "$(cut -d'|' -f1 "$_tmp/profiles" 2>/dev/null | sort | uniq -d | head -n1)" ]; then loge "mount.conf 有重複 profile group"; _err=1; fi
   # Every enabled profile entry must have a selected group.
@@ -638,7 +774,7 @@ parse_config() {
     if [ -n "$_g" ]; then grep -Fq "$_g|" "$_tmp/profiles" || { loge "profile group=$_g 沒有 profile=... 選擇值"; _err=1; }; fi
   done < "$_tmp/mounts.all"
   [ "$_err" = 0 ] || { rm -rf "$_tmp"; return 3; }
-  printf 'partition=%s\nmount_point=%s\nfs=%s\n' "$_partition" "$_mp" "$_fs" > "$_tmp/global"
+  printf 'partition=%s\nmount_point=%s\nfs=%s\nvendor_gallery_quiesce=%s\n' "$_partition" "$_mp" "$_fs" "$_vgq" > "$_tmp/global"
   # Build selected desired list and reject duplicate targets.
   : > "$_tmp/mounts.desired"
   while IFS='|' read -r _n _u _s _t _l _v _e _g _pv _pol _create _migrate; do
@@ -666,7 +802,7 @@ parse_global_config() {
   _cfg=${1:-$CONF}; _out=${2:-$PARSED}
   [ -f "$_cfg" ] || { loge "設定檔不存在｜$_cfg"; return 2; }
   _tmp="$_out.global.tmp.$$"; rm -rf "$_tmp" 2>/dev/null; mkdir -p "$_tmp" || return 2
-  _partition=''; _mp=''; _fs=auto
+  _partition=''; _mp=''; _fs=auto; _vgq=auto
   while IFS= read -r _line || [ -n "$_line" ]; do
     _line=$(trim "$_line")
     case "$_line" in
@@ -674,6 +810,7 @@ parse_global_config() {
       partition=*) _partition=${_line#partition=} ;;
       mount_point=*) _mp=${_line#mount_point=} ;;
       fs=*) _fs=${_line#fs=} ;;
+      vendor_gallery_quiesce=*) _vgq=${_line#vendor_gallery_quiesce=} ;;
     esac
   done < "$_cfg"
   _err=0
@@ -682,11 +819,13 @@ parse_global_config() {
   [ -n "$_mp" ] || { loge "mount_point 必填：請填主分區掛載位置，例如 mount_point=/mnt/YAWAsau"; _err=1; }
   [ -z "$_mp" ] || valid_safe_abs "$_mp" || { loge "mount_point 路徑無效/含 traversal"; _err=1; }
   case "$_fs" in auto|f2fs|ext4) ;; *) loge "fs 只接受 auto/f2fs/ext4"; _err=1;; esac
+  case "$_vgq" in auto|off|force) ;; *) loge "vendor_gallery_quiesce 只接受 auto/off/force"; _err=1;; esac
   [ "$_err" = 0 ] || { rm -rf "$_tmp"; return 3; }
   printf 'partition=%s
 mount_point=%s
 fs=%s
-' "$_partition" "$_mp" "$_fs" > "$_tmp/global" || { rm -rf "$_tmp"; return 2; }
+vendor_gallery_quiesce=%s
+' "$_partition" "$_mp" "$_fs" "$_vgq" > "$_tmp/global" || { rm -rf "$_tmp"; return 2; }
   : > "$_tmp/profiles"; : > "$_tmp/dirs"; : > "$_tmp/mounts.all"; : > "$_tmp/mounts.desired"
   mkdir -p "$_out" 2>/dev/null || { rm -rf "$_tmp"; return 2; }
   for _pg_f in global profiles dirs mounts.all mounts.desired; do
@@ -1001,6 +1140,19 @@ parsed_cache_matches_hash() {
   [ -n "$_pch" ] && [ -f "$PARSED_HASH" ] && [ "$(cat "$PARSED_HASH" 2>/dev/null)" = "$_pch" ]
 }
 
+parsed_clone_dir() {
+  _pcd_src=$1; _pcd_dst=$2
+  [ -n "$_pcd_src" ] && [ -n "$_pcd_dst" ] || return 1
+  [ -d "$_pcd_src" ] || return 1
+  rm -rf "$_pcd_dst" 2>/dev/null || true
+  mkdir -p "$_pcd_dst" 2>/dev/null || return 1
+  for _pcd_f in global profiles dirs mounts.all mounts.desired; do
+    [ -f "$_pcd_src/$_pcd_f" ] || continue
+    cp -f "$_pcd_src/$_pcd_f" "$_pcd_dst/$_pcd_f" 2>/dev/null || return 1
+  done
+  [ -f "$_pcd_dst/global" ] && [ -f "$_pcd_dst/mounts.desired" ]
+}
+
 config_state_value() {
   grep -m1 "^$1=" "$CONFIG_STATE" 2>/dev/null | cut -d= -f2-
 }
@@ -1136,6 +1288,104 @@ pkg_uid_user() {
   _app=$(dumpsys package "$_pkg" 2>/dev/null | sed -n 's/^[[:space:]]*userId=\([0-9][0-9]*\).*/\1/p' | head -n1)
   case "$_app" in ''|*[!0-9]*) return 1;; esac
   printf '%s\n' $((_u*100000+_app))
+}
+
+
+vendor_gallery_quiesce_mode() {
+  _vgqm=$(cfg_get vendor_gallery_quiesce 2>/dev/null || true)
+  [ -n "$_vgqm" ] || _vgqm=auto
+  case "$_vgqm" in auto|off|force) printf '%s\n' "$_vgqm" ;; *) printf 'auto\n' ;; esac
+}
+
+vendor_gallery_packages() {
+  if [ -n "${YAW_VENDOR_GALLERY_PACKAGES:-}" ]; then
+    printf '%s\n' $YAW_VENDOR_GALLERY_PACKAGES
+  else
+    printf '%s\n' \
+      com.miui.gallery \
+      com.miui.mediaeditor \
+      com.miui.gallery.editor \
+      com.miui.mediaviewer
+  fi
+}
+
+vendor_gallery_pkg_installed() {
+  _vgpi_u=$1; _vgpi_pkg=$2
+  cmd package list packages --user "$_vgpi_u" "$_vgpi_pkg" 2>/dev/null | grep -Fqx "package:$_vgpi_pkg" && return 0
+  cmd package list packages --user "$_vgpi_u" "$_vgpi_pkg" 2>/dev/null | grep -Fq "package:$_vgpi_pkg" && return 0
+  return 1
+}
+
+vendor_gallery_pids_for_pkg() {
+  _vgpf_u=$1; _vgpf_pkg=$2; _vgpf_uid=''
+  _vgpf_uid=$(pkg_uid_user "$_vgpf_u" "$_vgpf_pkg" 2>/dev/null || true)
+  for _vgpf_d in /proc/[0-9]*; do
+    [ -r "$_vgpf_d/cmdline" ] || continue
+    _vgpf_cmd=$(tr '\0' '\n' < "$_vgpf_d/cmdline" 2>/dev/null | head -n1)
+    case "$_vgpf_cmd" in "$_vgpf_pkg"|"$_vgpf_pkg":*) ;; *) continue ;; esac
+    _vgpf_pid=${_vgpf_d##*/}
+    case "$_vgpf_pid" in ''|*[!0-9]*) continue ;; esac
+    if [ -n "$_vgpf_uid" ]; then
+      _vgpf_actual=$(awk '/^Uid:/{print $2;exit}' "$_vgpf_d/status" 2>/dev/null)
+      [ "$_vgpf_actual" = "$_vgpf_uid" ] || continue
+    fi
+    printf '%s\n' "$_vgpf_pid"
+  done
+}
+
+vendor_gallery_force_stop_pkg() {
+  _vgfs_u=$1; _vgfs_pkg=$2; _vgfs_reason=$3
+  vendor_gallery_pkg_installed "$_vgfs_u" "$_vgfs_pkg" || return 1
+  _vgfs_before=$(vendor_gallery_pids_for_pkg "$_vgfs_u" "$_vgfs_pkg" | tr '\n' ' ')
+  am force-stop --user "$_vgfs_u" "$_vgfs_pkg" >/dev/null 2>&1 || cmd activity force-stop --user "$_vgfs_u" "$_vgfs_pkg" >/dev/null 2>&1 || true
+  sleep 0.08
+  _vgfs_after=$(vendor_gallery_pids_for_pkg "$_vgfs_u" "$_vgfs_pkg" | tr '\n' ' ')
+  if [ -n "$_vgfs_after" ]; then
+    for _vgfs_pid in $_vgfs_after; do kill -TERM "$_vgfs_pid" 2>/dev/null || true; done
+    sleep 0.08
+    _vgfs_after2=$(vendor_gallery_pids_for_pkg "$_vgfs_u" "$_vgfs_pkg" | tr '\n' ' ')
+    for _vgfs_pid in $_vgfs_after2; do kill -KILL "$_vgfs_pid" 2>/dev/null || true; done
+  fi
+  logi "廠商相簿靜默處理｜User=$_vgfs_u｜package=$_vgfs_pkg｜reason=$_vgfs_reason｜pids_before=${_vgfs_before:-none}"
+  return 0
+}
+
+vendor_gallery_profile_targets_users() {
+  _vgpt_old=$1; _vgpt_new=$2
+  for _vgpt_f in "$_vgpt_old" "$_vgpt_new"; do
+    [ -f "$_vgpt_f" ] || continue
+    while IFS='|' read -r _vgpt_n _vgpt_u _vgpt_s _vgpt_t _vgpt_l _vgpt_v _vgpt_e _vgpt_g _vgpt_pv _vgpt_pol _vgpt_c _vgpt_m; do
+      [ -n "$_vgpt_v" ] || continue
+      case "$_vgpt_v" in
+        /storage/emulated/$_vgpt_u/DCIM|/storage/emulated/$_vgpt_u/DCIM/*|/data/media/$_vgpt_u/DCIM|/data/media/$_vgpt_u/DCIM/*)
+          printf '%s\n' "$_vgpt_u"
+          ;;
+      esac
+    done < "$_vgpt_f"
+  done | awk 'NF && !seen[$0]++'
+}
+
+vendor_gallery_quiesce_profile_before() {
+  _vgq_old=$1; _vgq_new=$2; _vgq_group=$3; _vgq_from=$4; _vgq_to=$5
+  _vgq_mode=$(vendor_gallery_quiesce_mode)
+  [ "$_vgq_mode" = off ] && return 0
+  _vgq_users=$(vendor_gallery_profile_targets_users "$_vgq_old" "$_vgq_new" | tr '\n' ' ')
+  [ -n "$_vgq_users" ] || return 0
+  _vgq_any=0
+  for _vgq_u in $_vgq_users; do
+    for _vgq_pkg in $(vendor_gallery_packages); do
+      case "$_vgq_pkg" in ''|*[!A-Za-z0-9._]*) continue ;; esac
+      if [ "$_vgq_mode" = force ] || vendor_gallery_pkg_installed "$_vgq_u" "$_vgq_pkg"; then
+        if vendor_gallery_force_stop_pkg "$_vgq_u" "$_vgq_pkg" "profile_${_vgq_group}_${_vgq_from}_to_${_vgq_to}"; then
+          _vgq_any=$((_vgq_any+1))
+        fi
+      fi
+    done
+  done
+  if [ "$_vgq_any" -gt 0 ]; then
+    logi "廠商相簿相容模式已處理｜mode=$_vgq_mode｜users=$_vgq_users｜profile=$_vgq_group｜$_vgq_from → $_vgq_to｜packages=$_vgq_any"
+  fi
+  return 0
 }
 
 media_cache_file() { printf '%s/media_provider_ns.%s.cache\n' "$RUNTIME" "$1"; }
@@ -1700,6 +1950,21 @@ mounttx_profile_switch() {
     --timeout-ms 9000
 }
 
+mounttx_source_refresh() {
+  _msr_rows=$1; _msr_gen=$2; _msr_tag=$3
+  [ -x "$MOUNTTX" ] || return 127
+  "$MOUNTTX" source-refresh \
+    --rows "$_msr_rows" \
+    --runtime "$RUNTIME" \
+    --moddir "$MODDIR" \
+    --data-dir "$DATA_DIR" \
+    --log "$LOG" \
+    --generation-file "$NS_BG_GEN" \
+    --generation "$_msr_gen" \
+    --tag "$_msr_tag" \
+    --timeout-ms 9000
+}
+
 profile_rows_has_bindfs() {
   _prhb_file=$1
   [ -f "$_prhb_file" ] || return 1
@@ -1890,6 +2155,7 @@ unmount_all_ns() {
   done
   if [ "$_pol" = bindfs_shared ]; then
     bindfs_mounted_ns1 "$_dst" && ns1 umount "$_dst" 2>/dev/null || ns1 umount -l "$_dst" 2>/dev/null || true
+    bindfs_kill_target "$_dst" >/dev/null 2>&1 || true
   else
     if same_ns1 "$_src" "$_dst"; then ns1 umount "$_dst" 2>/dev/null || ns1 umount -l "$_dst" 2>/dev/null || true; fi
   fi
@@ -1904,6 +2170,7 @@ unmount_all_ns_base() {
   done
   if [ "$_pol" = bindfs_shared ]; then
     bindfs_mounted_ns1 "$_dst" && ns1 umount "$_dst" 2>/dev/null || ns1 umount -l "$_dst" 2>/dev/null || true
+    bindfs_kill_target "$_dst" >/dev/null 2>&1 || true
   else
     if same_ns1 "$_src" "$_dst"; then ns1 umount "$_dst" 2>/dev/null || ns1 umount -l "$_dst" 2>/dev/null || true; fi
   fi
@@ -2065,16 +2332,20 @@ apply_reload() {
     seed_config || return 2
   fi
 
-  case "$_reason" in
-    config_event|config_event_retry)
-      _pre_hash=$(config_hash "$CONF" 2>/dev/null || true)
-      _pre_applied=$(cat "$APPLIED_HASH" 2>/dev/null)
-      if [ -n "$_pre_hash" ] && [ "$_pre_hash" = "$_pre_applied" ] && parsed_cache_matches_hash "$_pre_hash"; then
-        config_state_write valid 0 "duplicate_$_reason" "$_pre_hash" >/dev/null 2>&1 || true
-        return 0
-      fi
-      ;;
-  esac
+  _pre_hash=$(config_hash "$CONF" 2>/dev/null || true)
+  _pre_applied=$(cat "$APPLIED_HASH" 2>/dev/null)
+  if [ -n "$_pre_hash" ] && [ "$_pre_hash" = "$_pre_applied" ] && parsed_cache_matches_hash "$_pre_hash"; then
+    if active_sources_need_refresh_for_file "$ACTIVE"; then
+      logw "設定內容未變但偵測到來源 inode 變更，仍執行掛載重建｜原因=$_reason"
+    else
+      case "$_reason" in
+        config_event|config_event_retry|manual|webui|profile_prerepair)
+          config_state_write valid 0 "duplicate_$_reason" "$_pre_hash" >/dev/null 2>&1 || true
+          return 0
+          ;;
+      esac
+    fi
+  fi
 
   if [ "${YAWASAU_RELOAD_LOCK_PREHELD:-0}" = 1 ]; then
     _owner=$(cat "$LOCKDIR/pid" 2>/dev/null)
@@ -2096,24 +2367,17 @@ apply_reload() {
   }
 
   case "$_reason" in
-    config_event|config_event_retry)
+    config_event|config_event_retry|manual|webui|profile_prerepair)
       _applied_after_lock=$(cat "$APPLIED_HASH" 2>/dev/null)
-      if [ -n "$_cfg_hash" ] && [ "$_cfg_hash" = "$_applied_after_lock" ]; then
-        # The live config is already the last applied config. However an earlier
-        # failed preflight from v1.3.0 could have polluted runtime/parsed with an
-        # invalid candidate. Repair the parsed cache from this stable snapshot
-        # before declaring the event duplicate, so WebUI and module.prop return
-        # to the real last-good state immediately.
-        if ! parsed_cache_matches_hash "$_cfg_hash"; then
-          rm -rf "$_txn_parsed" 2>/dev/null
-          if parse_config "$_txn_cfg" "$_txn_parsed" >/dev/null 2>&1; then
-            parsed_publish_dir "$_txn_parsed" "$_cfg_hash" >/dev/null 2>&1 || true
-          fi
+      if [ -n "$_cfg_hash" ] && [ "$_cfg_hash" = "$_applied_after_lock" ] && parsed_cache_matches_hash "$_cfg_hash"; then
+        if active_sources_need_refresh_for_file "$ACTIVE"; then
+          logw "設定內容未變但偵測到來源 inode 變更，仍執行掛載重建｜原因=$_reason"
+        else
+          config_state_write valid 0 "duplicate_$_reason" "$_cfg_hash" >/dev/null 2>&1 || true
+          rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null
+          PARSED="$_parsed_saved"; lock_release; trap - EXIT INT TERM
+          return 0
         fi
-        config_state_write valid 0 "duplicate_$_reason" "$_cfg_hash" >/dev/null 2>&1 || true
-        rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null
-        PARSED="$_parsed_saved"; lock_release; trap - EXIT INT TERM
-        return 0
       fi
       ;;
   esac
@@ -2140,6 +2404,15 @@ apply_reload() {
       fi
       _pri=$((_pri+1))
     done
+  fi
+  if [ "$_parse_ok" -ne 1 ]; then
+    _applied_after_parse_fail=$(cat "$APPLIED_HASH" 2>/dev/null)
+    if [ -n "$_cfg_hash" ] && [ "$_cfg_hash" = "$_applied_after_parse_fail" ] && parsed_cache_matches_hash "$_cfg_hash" && active_sources_need_refresh_for_file "$ACTIVE"; then
+      if parsed_clone_dir "$PARSED_REAL" "$_txn_parsed"; then
+        _parse_ok=1
+        logw "mount.conf same-hash 解析失敗但最後有效快照可用，改用 last-good parsed 執行來源 inode 重建｜原因=$_reason｜hash=$_cfg_hash"
+      fi
+    fi
   fi
   if [ "$_parse_ok" -ne 1 ]; then
     # Full bind-row validation failed. Still try the root-only parser so a valid
@@ -2171,13 +2444,17 @@ apply_reload() {
 
   _applied_hash=$(cat "$APPLIED_HASH" 2>/dev/null)
   case "$_reason" in
-    config_event|config_event_retry|profile_change)
+    config_event|config_event_retry|profile_change|manual|webui|profile_prerepair)
       if [ -n "$_cfg_hash" ] && [ "$_cfg_hash" = "$_applied_hash" ]; then
-        parsed_publish_dir "$_txn_parsed" "$_cfg_hash" >/dev/null 2>&1 || true
-        config_state_write valid 0 "duplicate_$_reason" "$_cfg_hash" >/dev/null 2>&1 || true
-        rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null
-        PARSED="$_parsed_saved"; lock_release; trap - EXIT INT TERM
-        return 0
+        if active_sources_need_refresh_for_file "$ACTIVE"; then
+          logw "設定內容未變但偵測到來源 inode 變更，仍執行掛載重建｜原因=$_reason"
+        else
+          parsed_publish_dir "$_txn_parsed" "$_cfg_hash" >/dev/null 2>&1 || true
+          config_state_write valid 0 "duplicate_$_reason" "$_cfg_hash" >/dev/null 2>&1 || true
+          rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null
+          PARSED="$_parsed_saved"; lock_release; trap - EXIT INT TERM
+          return 0
+        fi
       fi
       ;;
   esac
@@ -2266,6 +2543,7 @@ apply_reload() {
   printf '%s
 ' "$_newglobal" > "$GLOBAL_ACTIVE.tmp.$$"; mv -f "$GLOBAL_ACTIVE.tmp.$$" "$GLOBAL_ACTIVE"
   _next="$ACTIVE.next.$$"; : > "$_next"; _fail=0; _defer=0
+  _next_src_state="$ACTIVE_SRC_STATE.next.$$"; : > "$_next_src_state" 2>/dev/null || true
 
   # For a user-scoped event, keep other users' last-good active mappings as-is.
   # A User 0 unlock retry must never be blocked by User 10 / Private Space rows,
@@ -2276,6 +2554,7 @@ apply_reload() {
       if [ "$_au" != "$_apply_scope" ]; then
         printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s
 ' "$_an" "$_au" "$_as" "$_at" "$_al" "$_av" "$_ae" "$_ag" "$_apv" "$_apol" "$_acreate" "$_amigrate" >> "$_next"
+        active_source_state_append "$_next_src_state" "$_au" "$_al" "$_as" "$_apol"
       fi
     done < "$ACTIVE"
   fi
@@ -2304,9 +2583,14 @@ apply_reload() {
     row_scope_match "$_apply_scope" "$_u" || continue
     _row=$(printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s' "$_n" "$_u" "$_s" "$_t" "$_l" "$_v" "$_e" "$_g" "$_pv" "$_pol" "$_create" "$_migrate")
     if [ -f "$ACTIVE" ] && grep -Fqx "$_row" "$ACTIVE" 2>/dev/null && row_mounted "$_u" "$_s" "$_l" "$_pol"; then
-      printf '%s
+      if refresh_stale_source_mount_if_needed "$_n" "$_u" "$_s" "$_t" "$_l" "$_v" "$_pol" "$_create" "$_migrate"; then
+        :
+      else
+        printf '%s
 ' "$_row" >> "$_next"
-      continue
+        active_source_state_append "$_next_src_state" "$_u" "$_l" "$_s" "$_pol"
+        continue
+      fi
     fi
 
     if [ -n "$_v" ] && ! user_storage_available "$_u"; then logi "User 儲存根目錄尚未就緒，延後掛載｜名稱=$_n｜User=$_u"; _defer=$((_defer+1)); continue; fi
@@ -2348,6 +2632,7 @@ apply_reload() {
       fi
       printf '%s
 ' "$_row" >> "$_next"
+      active_source_state_append "$_next_src_state" "$_u" "$_l" "$_s" "$_pol"
     else
       loge "掛載失敗｜名稱=$_n｜User=$_u｜$_s → $_t"; _fail=$((_fail+1))
     fi
@@ -2355,6 +2640,7 @@ apply_reload() {
 
   if [ "$_fail" -eq 0 ]; then
     mv -f "$_next" "$ACTIVE"
+    mv -f "$_next_src_state" "$ACTIVE_SRC_STATE" 2>/dev/null || true
     parsed_publish_dir "$_txn_parsed" "$_cfg_hash" >/dev/null 2>&1 || true
     [ -n "$_cfg_hash" ] && printf '%s\n' "$_cfg_hash" > "$APPLIED_HASH.tmp.$$" 2>/dev/null && mv -f "$APPLIED_HASH.tmp.$$" "$APPLIED_HASH" 2>/dev/null
     config_state_write valid 0 "$_reason" "$_cfg_hash" "$_defer" >/dev/null 2>&1 || true
@@ -2367,7 +2653,7 @@ apply_reload() {
       mount_active_background_sync "$ACTIVE" "$_reason" >/dev/null 2>&1 || true
     fi
   else
-    rm -f "$_next" 2>/dev/null
+    rm -f "$_next" "$_next_src_state" 2>/dev/null
     config_state_write invalid 1 "$_reason" "$_cfg_hash" "$_defer" >/dev/null 2>&1 || true
     logw "設定套用未完整成功，active_mounts 保留上一個成功狀態｜原因=$_reason｜失敗=$_fail"
   fi
@@ -2449,6 +2735,7 @@ unmount_active_all() {
   [ -f "$ACTIVE" ] || return 0
   while IFS='|' read -r _n _u _s _t _l _v _e _g _pv _pol _create _migrate; do [ -n "$_l" ] || continue; unmount_all_ns "$_u" "$_s" "$_l" "$_pol"; done < "$ACTIVE"
   : > "$ACTIVE"
+  : > "$ACTIVE_SRC_STATE" 2>/dev/null || true
 }
 
 
@@ -2468,6 +2755,9 @@ unmount_user_active() {
     done < "$ACTIVE"
   fi
   mv -f "$_next" "$ACTIVE"
+  _user_src_next="$ACTIVE_SRC_STATE.usernext.$$"
+  active_source_state_rebuild_from_active "$ACTIVE" "$_user_src_next" >/dev/null 2>&1 || true
+  mv -f "$_user_src_next" "$ACTIVE_SRC_STATE" 2>/dev/null || true
   rm -f "$(media_cache_file "$_target_user")" 2>/dev/null
   lock_release; trap - EXIT INT TERM
   return 0
@@ -2647,6 +2937,12 @@ set_profile() {
     return 7
   fi
 
+  # v1.4.82: HyperOS/MIUI Gallery and similar vendor galleries may keep
+  # background AI/classification workers reading DCIM while the same visible
+  # path is switched to a different source. Quiet them before the native mount
+  # transaction so they reopen MediaStore/files after the new profile is stable.
+  vendor_gallery_quiesce_profile_before "$_sp_changed_old" "$_sp_changed_new" "$_sp_group" "$_sp_current" "$_sp_value" >/dev/null 2>&1 || true
+
   # Invalidate every older App-namespace worker before changing the core
   # namespaces. This closes the v1.4.70/v1.4.71 rapid-profile race where a
   # previous background tail could unmount or remount the target after a newer
@@ -2729,6 +3025,21 @@ set_profile() {
     return 6
   }
 
+  # v1.4.87: publish an internal marker before replacing mount.conf.
+  # Native confwatch can observe the rename before APPLIED_HASH/config.state are
+  # committed below; the marker lets service.sh wait for the profile commit and
+  # skip the duplicate config transaction/notification instead of reporting
+  # "掛載完成 ... 已移除：日常/工作" after every profile switch.
+  _sp_marker_tmp="$PROFILE_INTERNAL_EVENT.tmp.$$"
+  {
+    printf 'HASH=%s\n' "$_sp_new_hash"
+    printf 'GROUP=%s\n' "$_sp_group"
+    printf 'FROM=%s\n' "$_sp_current"
+    printf 'TO=%s\n' "$_sp_value"
+    printf 'TAG=%s\n' "$_sp_tag"
+    printf 'PID=%s\n' "$$"
+  } > "$_sp_marker_tmp" 2>/dev/null && mv -f "$_sp_marker_tmp" "$PROFILE_INTERNAL_EVENT" 2>/dev/null || true
+
   mv -f "$_sp_conf_new" "$CONF" || {
     profile_rollback_rows "$_sp_changed_new" "$_sp_changed_old" "$_sp_tag" config_publish_failed >/dev/null 2>&1 || true
     rm -f $_sp_cleanup 2>/dev/null
@@ -2743,12 +3054,17 @@ set_profile() {
   # Rebuild ACTIVE from what is actually mounted; unrelated rows are preserved
   # without any bind/probe work.
   : > "$_sp_active_new"
+  _sp_active_src_new="$ACTIVE_SRC_STATE.profile.$_sp_tag"
+  : > "$_sp_active_src_new" 2>/dev/null || true
   while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
     [ -n "$_sp_l" ] || continue
-    row_mounted "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_pol" && printf '%s\n' "$_sp_n|$_sp_u|$_sp_s|$_sp_t|$_sp_l|$_sp_v|$_sp_e|$_sp_g|$_sp_pv|$_sp_pol|$_sp_create|$_sp_migrate" >> "$_sp_active_new"
+    if row_mounted "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_pol"; then
+      printf '%s\n' "$_sp_n|$_sp_u|$_sp_s|$_sp_t|$_sp_l|$_sp_v|$_sp_e|$_sp_g|$_sp_pv|$_sp_pol|$_sp_create|$_sp_migrate" >> "$_sp_active_new"
+      active_source_state_append "$_sp_active_src_new" "$_sp_u" "$_sp_l" "$_sp_s" "$_sp_pol"
+    fi
   done < "$PARSED/mounts.desired"
   mv -f "$_sp_active_new" "$ACTIVE"
-
+  mv -f "$_sp_active_src_new" "$ACTIVE_SRC_STATE" 2>/dev/null || true
   printf '%s\n' "$_sp_new_hash" > "$APPLIED_HASH.tmp.$$" 2>/dev/null && mv -f "$APPLIED_HASH.tmp.$$" "$APPLIED_HASH" 2>/dev/null
   printf '%s\n' "$_sp_new_hash" > "$PARSED_HASH.tmp.$$" 2>/dev/null && mv -f "$PARSED_HASH.tmp.$$" "$PARSED_HASH" 2>/dev/null || true
   config_state_write valid 0 profile_change "$_sp_new_hash" >/dev/null 2>&1 || true

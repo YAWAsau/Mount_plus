@@ -20,6 +20,12 @@ mount_point=/mnt/YAWAsau
 # 其他格式一律拒絕掛載。
 fs=auto
 
+# vendor_gallery_quiesce：廠商相簿相容模式。
+# auto  = 預設；Profile 切換 DCIM 前，偵測到 HyperOS/MIUI 相簿 package 才靜默處理。
+# off   = 不處理。
+# force = 強制按內建相簿 package 清單處理。
+vendor_gallery_quiesce=auto
+
 # ─────────────────────────────────────────────
 # ② 預先建立的資料夾
 # ─────────────────────────────────────────────

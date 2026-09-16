@@ -1,6 +1,6 @@
 id=dcimswitch
 name=YAWAsau Mount
-version=v1.4.81-remove-notify-real-id-profile-dedup-20260830
-versionCode=1481
+version=v1.4.87-profile-confwatch-race-dedup-20260912
+versionCode=1487
 author=Github@YAWAsau
-description=保留 v1.4.80；修正移除掛載通知真正使用獨立通知 ID 並在內容中明示「移除掛載成功」，同時跳過 Profile 內部 mount.conf 事件的重複 config summary
+description=保留 v1.4.86 native source-refresh；修 Profile 內部 mount.conf 發佈被 confwatch 搶先捕捉，導致每次切換後重複顯示「掛載完成／已移除日常或工作」的通知競態

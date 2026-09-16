@@ -51,6 +51,7 @@ typedef struct RowSet {
 typedef struct Options {
     const char *old_rows;
     const char *new_rows;
+    const char *rows;
     const char *runtime;
     const char *moddir;
     const char *data_dir;
@@ -191,6 +192,22 @@ static bool read_cmdline(pid_t pid, char *buf, size_t sz) {
     for (ssize_t i = 0; i < n; ++i) {
         if (buf[i] == '\0') { buf[i] = '\0'; break; }
     }
+    return true;
+}
+
+static bool read_cmdline_flat(pid_t pid, char *buf, size_t sz) {
+    char p[64];
+    snprintf(p, sizeof(p), "/proc/%d/cmdline", pid);
+    int fd = open(p, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return false;
+    ssize_t n = read(fd, buf, sz - 1);
+    close(fd);
+    if (n <= 0) return false;
+    for (ssize_t i = 0; i < n; ++i) {
+        if (buf[i] == '\0') buf[i] = ' ';
+    }
+    while (n > 0 && buf[n - 1] == ' ') n--;
+    buf[n] = '\0';
     return true;
 }
 
@@ -396,6 +413,44 @@ static int unmount_core(const Row *r) {
         restore_ns(orig);
     }
     return fail ? 1 : 0;
+}
+
+static bool has_prefix_path(const char *path, const char *prefix) {
+    if (!path || !prefix) return false;
+    size_t n = strlen(prefix);
+    return strncmp(path, prefix, n) == 0;
+}
+
+static void restore_visible_lower_dir(const Row *r) {
+    if (!r || r->lower[0] == '\0') return;
+    (void)mkdir_p(r->lower, 0770);
+    if (has_prefix_path(r->lower, "/data/media/") || has_prefix_path(r->lower, "/storage/emulated/")) {
+        (void)chown(r->lower, 1023, 1023);
+        (void)chmod(r->lower, 02770);
+    } else {
+        (void)chmod(r->lower, 0770);
+    }
+}
+
+static void kill_bindfs_target(const char *target) {
+    if (!target || !*target) return;
+    for (int pass = 0; pass < 2; ++pass) {
+        DIR *d = opendir("/proc");
+        if (!d) return;
+        struct dirent *de;
+        while ((de = readdir(d)) != NULL) {
+            char *end = NULL;
+            long v = strtol(de->d_name, &end, 10);
+            if (!end || *end != '\0' || v <= 1 || v > INT_MAX) continue;
+            char cmd[4096];
+            if (!read_cmdline_flat((pid_t)v, cmd, sizeof(cmd))) continue;
+            if (strstr(cmd, "bindfs") && strstr(cmd, target)) {
+                (void)kill((pid_t)v, pass == 0 ? SIGTERM : SIGKILL);
+            }
+        }
+        closedir(d);
+        if (pass == 0) msleep_int(60);
+    }
 }
 
 static int bind_pid(pid_t pid, const Row *r) {
@@ -719,8 +774,59 @@ static int profile_switch(void) {
     return 0;
 }
 
+static int source_refresh(void) {
+    RowSet rows;
+    int rr = read_rows(g_opt.rows, &rows);
+    if (rr != 0) {
+        log_msg("錯誤", "source-refresh native 讀取 rows 失敗｜rc=%d｜rows=%s", rr, g_opt.rows ? g_opt.rows : "-");
+        return 5;
+    }
+    log_msg("資訊", "source-refresh native transaction 開始｜tag=%s｜rows=%d｜generation=%s", g_opt.tag ? g_opt.tag : "-", rows.count, g_opt.generation ? g_opt.generation : "-");
+    int fail = 0;
+    for (int i = 0; i < rows.count; ++i) {
+        const Row *r = &rows.rows[i];
+        if (!generation_current()) {
+            log_msg("警告", "source-refresh native 取消：generation 過期｜tag=%s", g_opt.tag ? g_opt.tag : "-");
+            return 75;
+        }
+        if (!path_is_dir(r->src) && r->create == 1) {
+            if (mkdir_p(r->src, 0770) == 0) {
+                log_msg("資訊", "source-refresh native 已重建來源目錄｜名稱=%s｜來源=%s", r->name, r->src);
+            }
+        }
+        if (!path_is_dir(r->src)) {
+            log_msg("錯誤", "source-refresh native 來源不存在｜名稱=%s｜來源=%s", r->name, r->src);
+            fail++;
+            continue;
+        }
+        restore_visible_lower_dir(r);
+        log_msg("警告", "source-refresh native core-only 重建開始｜名稱=%s｜policy=%s｜%s → %s", r->name, r->policy, r->src, r->target);
+        (void)unmount_core(r);
+        if (strcmp(r->policy, "bindfs_shared") == 0) {
+            kill_bindfs_target(r->lower);
+            (void)unmount_core(r);
+            restore_visible_lower_dir(r);
+        }
+        if (mount_core(r) != 0) {
+            log_msg("錯誤", "source-refresh native 重掛失敗｜名稱=%s｜policy=%s｜%s → %s", r->name, r->policy, r->src, r->target);
+            fail++;
+            continue;
+        }
+        if (!visible_probe_retry(r, "source-refresh")) {
+            log_msg("錯誤", "source-refresh native 可見性驗證失敗｜名稱=%s｜路徑=%s", r->name, r->visible);
+            fail++;
+            continue;
+        }
+        log_msg("資訊", "source-refresh native 重建完成｜名稱=%s｜policy=%s｜%s → %s", r->name, r->policy, r->src, r->target);
+    }
+    log_msg(fail ? "錯誤" : "資訊", "source-refresh native transaction 完成｜tag=%s｜fail=%d", g_opt.tag ? g_opt.tag : "-", fail);
+    return fail ? 1 : 0;
+}
+
 static void usage(FILE *fp) {
-    fprintf(fp, "usage: mounttx profile-switch --old FILE --new FILE --runtime DIR --moddir DIR --log FILE --generation-file FILE --generation VALUE [--tag TAG] [--timeout-ms N]\n");
+    fprintf(fp, "usage:\n");
+    fprintf(fp, "  mounttx profile-switch --old FILE --new FILE --runtime DIR --moddir DIR --log FILE --generation-file FILE --generation VALUE [--tag TAG] [--timeout-ms N]\n");
+    fprintf(fp, "  mounttx source-refresh --rows FILE --runtime DIR --moddir DIR --log FILE --generation-file FILE --generation VALUE [--tag TAG] [--timeout-ms N]\n");
 }
 
 static const char *arg_value(int *i, int argc, char **argv) {
@@ -733,7 +839,12 @@ int main(int argc, char **argv) {
     memset(&g_opt, 0, sizeof(g_opt));
     g_opt.timeout_ms = 9000;
     g_opt.data_dir = "/data/adb/dcimswitch";
-    if (argc < 2 || strcmp(argv[1], "profile-switch") != 0) {
+    if (argc < 2) {
+        usage(stderr);
+        return 2;
+    }
+    const char *cmd = argv[1];
+    if (strcmp(cmd, "profile-switch") != 0 && strcmp(cmd, "source-refresh") != 0) {
         usage(stderr);
         return 2;
     }
@@ -742,6 +853,7 @@ int main(int argc, char **argv) {
         const char *v = NULL;
         if (strcmp(a, "--old") == 0) { v = arg_value(&i, argc, argv); if (!v) return 2; g_opt.old_rows = v; }
         else if (strcmp(a, "--new") == 0) { v = arg_value(&i, argc, argv); if (!v) return 2; g_opt.new_rows = v; }
+        else if (strcmp(a, "--rows") == 0) { v = arg_value(&i, argc, argv); if (!v) return 2; g_opt.rows = v; }
         else if (strcmp(a, "--runtime") == 0) { v = arg_value(&i, argc, argv); if (!v) return 2; g_opt.runtime = v; }
         else if (strcmp(a, "--moddir") == 0) { v = arg_value(&i, argc, argv); if (!v) return 2; g_opt.moddir = v; }
         else if (strcmp(a, "--data-dir") == 0) { v = arg_value(&i, argc, argv); if (!v) return 2; g_opt.data_dir = v; }
@@ -752,9 +864,17 @@ int main(int argc, char **argv) {
         else if (strcmp(a, "--timeout-ms") == 0) { v = arg_value(&i, argc, argv); if (!v) return 2; g_opt.timeout_ms = atoi(v); }
         else { usage(stderr); return 2; }
     }
-    if (!g_opt.old_rows || !g_opt.new_rows || !g_opt.runtime || !g_opt.moddir || !g_opt.log_path || !g_opt.generation_path || !g_opt.generation) {
+    if (!g_opt.runtime || !g_opt.moddir || !g_opt.log_path || !g_opt.generation_path || !g_opt.generation) {
         usage(stderr);
         return 2;
     }
-    return profile_switch();
+    if (strcmp(cmd, "profile-switch") == 0) {
+        if (!g_opt.old_rows || !g_opt.new_rows) { usage(stderr); return 2; }
+        return profile_switch();
+    }
+    if (strcmp(cmd, "source-refresh") == 0) {
+        if (!g_opt.rows) { usage(stderr); return 2; }
+        return source_refresh();
+    }
+    return 2;
 }

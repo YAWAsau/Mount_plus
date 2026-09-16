@@ -1174,7 +1174,7 @@ Copy-Item -LiteralPath $helperOut -Destination $helperAlias -Force
 $mounttxSrc = Join-Path $RootDir 'source\mounttx.c'
 Need-File $mounttxSrc 'mounttx.c'
 $mounttxOut = Join-Path $outPath 'bin\mounttx'
-Run-Checked -Title 'build native mounttx profile transaction helper' -Exe $clangExe -ArgList @(
+Run-Checked -Title 'build native mounttx profile/source-refresh transaction helper' -Exe $clangExe -ArgList @(
     "--target=$target",
     "--sysroot=$sysroot",
     '-std=gnu11','-Wall','-Wextra','-Werror','-O2','-fPIE','-pie',
@@ -1286,7 +1286,7 @@ Log 'Module runtime paths after packing:'
 Log '  /data/adb/modules/dcimswitch/bin/bindfs (static-fuse; no libfuse3.so runtime dependency)'
 Log '  /data/adb/modules/dcimswitch/bin/mount.fuse3 (native mount helper)'
 Log '  /data/adb/modules/dcimswitch/bin/mount_fusefs (native mount helper alias)'
-Log '  /data/adb/modules/dcimswitch/bin/mounttx (native profile transaction helper)'
+Log '  /data/adb/modules/dcimswitch/bin/mounttx (native profile/source-refresh transaction helper)'
 Log '  optional: /data/adb/modules/dcimswitch/bin/magiskpolicy'
 Log 'Legacy manual fallback remains supported under /data/adb/dcimswitch/native/.'
 

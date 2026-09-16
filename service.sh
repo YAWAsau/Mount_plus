@@ -45,7 +45,7 @@ if [ ! -e "$MARK" ]; then
     _i=0; while [ ! -e "$MARK" ] && [ "$_i" -lt 40 ]; do sleep 0.05; _i=$((_i+1)); done
   fi
 fi
-printf '========== YAWAsau Mount v1.4.81｜本次開機日誌 ==========\n' >> "$LOG" 2>/dev/null
+printf '========== YAWAsau Mount v1.4.87｜本次開機日誌 ==========\n' >> "$LOG" 2>/dev/null
 log '[資訊] 掛載服務啟動'
 log "[資訊] 目前生效設定｜$CONF"
 log "[資訊] 模組內建模板不會被監聽｜$MODDIR/mount.conf / mount.conf.default / mount.conf.example"
@@ -167,8 +167,29 @@ config_watch_loop(){
       # "新增/移除 日常/工作" config notification.
       _cw_applied_hash=$(cat "$RUNTIME/config.applied.cksum" 2>/dev/null)
       _cw_state_reason=$(sed -n 's/^REASON=//p' "$RUNTIME/config.state" 2>/dev/null | head -n1)
+      _cw_profile_marker_hash=$(sed -n 's/^HASH=//p' "$RUNTIME/profile_internal.conf_event" 2>/dev/null | head -n1)
+      _cw_profile_internal=0
       if [ -n "$_cw_hash" ] && [ "$_cw_hash" = "$_cw_applied_hash" ] && [ "$_cw_state_reason" = profile_change ]; then
-        log "[資訊] 偵測 Profile 內部 mount.conf 事件，已跳過重複 config 套用與通知｜watch_rc=$_wrc｜reason=profile_internal｜hash=$_cw_hash"
+        _cw_profile_internal=1
+      elif [ -n "$_cw_hash" ] && [ -n "$_cw_profile_marker_hash" ] && [ "$_cw_hash" = "$_cw_profile_marker_hash" ]; then
+        # v1.4.87: confwatch may see the profile-published mount.conf before
+        # profile_switch finishes committing APPLIED_HASH/config.state.  Wait a
+        # short bounded window for the foreground transaction to finish; only run
+        # a normal config reload if the matching profile commit never appears.
+        _cw_wait=0
+        while [ "$_cw_wait" -lt 10 ]; do
+          sleep 0.10
+          _cw_applied_hash=$(cat "$RUNTIME/config.applied.cksum" 2>/dev/null)
+          _cw_state_reason=$(sed -n 's/^REASON=//p' "$RUNTIME/config.state" 2>/dev/null | head -n1)
+          if [ "$_cw_hash" = "$_cw_applied_hash" ] && [ "$_cw_state_reason" = profile_change ]; then
+            _cw_profile_internal=1
+            break
+          fi
+          _cw_wait=$((_cw_wait + 1))
+        done
+      fi
+      if [ "$_cw_profile_internal" -eq 1 ]; then
+        log "[資訊] 偵測 Profile 內部 mount.conf 發佈事件，已跳過重複 config 套用與通知｜watch_rc=$_wrc｜reason=profile_internal｜hash=$_cw_hash"
         sh "$CONTROL" refresh_card >/dev/null 2>&1 || true
         continue
       fi
