@@ -1,0 +1,27 @@
+{
+  "ndk_revision": "30.0.16248370",
+  "android_api_target": 28,
+  "target": "aarch64-linux-android28",
+  "load_alignment": 16384,
+  "rebuilt": [
+    "bindfs (libfuse3 linked statically)",
+    "confwatch (static, no libc)",
+    "mount.fuse3",
+    "mount_fusefs (alias)",
+    "mounttx"
+  ],
+  "retained_from_input": [
+    "filewatch",
+    "propwait"
+  ],
+  "magiskpolicy": "retained from input; not an NDK r30 rebuild",
+  "compatibility": "API target and ELF checks do not replace Android device runtime tests.",
+  "classes_dex_sha256": "f2a483a2e50b35f3af4c211ef25809b723163d6c203f3daf1990404c118954a6",
+  "module_version": "v1.4.92-event-recovery-ndkr30-api28-20261006",
+  "native_build_origin": "Retained v1.4.89 runtime binaries and classes.dex; v1.4.92 changes Shell only.",
+  "shell_revision": "Persistent one-shot recursive media_rw metadata normalization with exclusions, error propagation, and explicit forced repair command.",
+  "v1490_validation": "CPH2747 Android 17: mksh/ash syntax checks, CE read-only check, isolated process identity, lock timeout and exit-release, worker restart and stop, and one-shot completion passed. Live boot/unlock mount validation pending at packaging time.",
+  "v1491_validation": "CPH2747 Android 17: mksh and KernelSU ash parsed the same 7 mount rows, 3 directories and camera=work profile; malformed fields and traversal rejected; validation no longer masks parse errors. Isolated identity, lock timeout and release, worker restart and stop, and one-shot completion checks passed in both shells. Live full service entry replay succeeded in 12 seconds; kernel mounts 7/7 and all four watcher readiness checks passed; live mount.conf SHA256 unchanged.",
+  "v1491_real_reboot_validation": "Passed on CPH2747 Android 17, 2026-10-06 Asia/Taipei. New boot ID confirmed; old active cache reset; 7 items deferred while locked. CE event at 18:45:17 automatically triggered mounting, reaching 7/7 at 18:45:22 with rc=0, failures=0 and deferred=0. No manual reload was issued. Kernel mounts, storage visibility logs, boot-aware watcher readiness, 20 installed file hashes and preserved config SHA256 checked. Background App namespace sync completed at 18:45:38. Scope: one reboot and User 0 first unlock, not long-term or other-ROM coverage.",
+  "v1492_validation": "Packaged candidate passed mksh/ash syntax and 8 isolated permissions regression groups on CPH2747 Android 17: recursive metadata and content, execute bits and newline names, glob-literal exclusion, symlink/nested bind protection, cache and forced scan, error invalidation/retry, userdata state reset, root guard, preserve and propagation. Runtime/source CRC and manifests checked; all 10 original bin entries unchanged. Live full-tree repair and v1.4.92 reboot remain pending while the user backup script is running."
+}

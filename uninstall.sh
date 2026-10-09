@@ -5,13 +5,8 @@ DATA_DIR=/data/adb/dcimswitch
 RUNTIME="$DATA_DIR/runtime"
 CONF="$DATA_DIR/mount.conf"
 
-for _pf in "$RUNTIME"/*.pid; do
-  [ -f "$_pf" ] || continue
-  _p=$(cat "$_pf" 2>/dev/null)
-  case "$_p" in ''|*[!0-9]*) ;; *) kill "$_p" 2>/dev/null || true;; esac
-done
-
-sh "$CONTROL" unmount_all >/dev/null 2>&1 || true
+sh "$CONTROL" stop_watchers || exit $?
+sh "$CONTROL" unmount_all || exit $?
 
 resolve_partition() {
   _part=$1

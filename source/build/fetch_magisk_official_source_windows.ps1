@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$MagiskSrc = '',
     [string]$Ref = '',
     [switch]$Force

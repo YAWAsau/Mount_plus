@@ -6,7 +6,11 @@ case "$cmd" in
   status) status_json ;;
   validate) validate_config_report validate "${2:-$CONF}"; exit $? ;;
   dryrun) validate_config_report dryrun "${2:-$CONF}"; exit $? ;;
-  reload|apply_all)
+  reload|apply_all|repair_permissions)
+    if [ "$cmd" = repair_permissions ]; then
+      export YAW_MEDIA_REPAIR_FORCE=1
+      set -- repair_permissions media_permissions
+    fi
     _reason=${2:-manual}
     _before_active="$RUNTIME/active.before.manual.$$"
     cp -f "$ACTIVE" "$_before_active" 2>/dev/null || : > "$_before_active"
@@ -102,6 +106,11 @@ case "$cmd" in
       echo '===== dcim_switch.log｜舊版相容日誌 ====='
       cat "$RUNTIME/dcim_switch.log" 2>/dev/null || true
     fi
+    if [ -s "$RUNTIME/watchers.stderr.log" ]; then
+      echo
+      echo '===== watchers.stderr.log｜事件監聽程序錯誤 ====='
+      cat "$RUNTIME/watchers.stderr.log" 2>/dev/null || true
+    fi
     ;;
   config_path) printf '%s\n' "$CONF" ;;
   config_info)
@@ -134,23 +143,21 @@ case "$cmd" in
     exit $_rc
     ;;
   stop_watchers)
-    for _n in confwatch userstate user0prop user0file; do
-      _pf="$RUNTIME/${_n}.pid"; _p=$(cat "$_pf" 2>/dev/null)
-      case "$_p" in ''|*[!0-9]*) ;; *) kill "$_p" 2>/dev/null || true ;; esac
-      rm -f "$_pf" 2>/dev/null || true
-    done
+    sh "$MODDIR/watchers.sh" stop || exit $?
     echo "事件監聽器已停止"
     ;;
   start_watchers)
-    sh "$MODDIR/service.sh" >/dev/null 2>&1 &
-    echo "事件監聽器/掛載服務已啟動"
+    sh "$MODDIR/watchers.sh" start manual || exit $?
+    sh "$MODDIR/service.sh" --recover-unlocked manual_start || exit $?
+    echo "事件監聽器已確認啟動，已檢查解鎖後掛載"
     ;;
   restart_watchers|restart_service)
-    sh "$0" stop_watchers >/dev/null 2>&1 || true
-    sh "$MODDIR/service.sh" >/dev/null 2>&1 &
-    echo "事件監聽器/掛載服務已重啟"
+    sh "$MODDIR/watchers.sh" stop || exit $?
+    sh "$MODDIR/watchers.sh" start manual || exit $?
+    sh "$MODDIR/service.sh" --recover-unlocked manual_restart || exit $?
+    echo "事件監聽器已確認重啟，已檢查解鎖後掛載"
     ;;
   unmount_user) [ $# -ge 2 ] || exit 2; unmount_user_active "$2" ;;
   unmount_all) lock_acquire || exit 4; trap 'lock_release' EXIT INT TERM; unmount_active_all; lock_release; trap - EXIT INT TERM ;;
-  *) echo "usage: $0 {status|reload|apply_all|profile GROUP VALUE|profile_async GROUP VALUE|profile_async_state|primary_action_info|toggle_primary|refresh_card|notify_test|notify_backend|log|config_path|config_info|backup_config|import_default|restore_default|validate [CONF]|dryrun [CONF]|start_watchers|stop_watchers|restart_service|unmount_user USER|unmount_all}" >&2; exit 2 ;;
+  *) echo "usage: $0 {status|reload|apply_all|repair_permissions|profile GROUP VALUE|profile_async GROUP VALUE|profile_async_state|primary_action_info|toggle_primary|refresh_card|notify_test|notify_backend|log|config_path|config_info|backup_config|import_default|restore_default|validate [CONF]|dryrun [CONF]|start_watchers|stop_watchers|restart_service|unmount_user USER|unmount_all}" >&2; exit 2 ;;
 esac

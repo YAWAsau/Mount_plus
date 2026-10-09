@@ -1,6 +1,6 @@
 param(
     [int]$Api = 28,
-    [string]$NdkVersion = '28.2.13676358',
+    [string]$NdkVersion = '30.0.16248370',
     [string]$NdkRoot = '',
     [ValidateSet(4096,16384)][int]$PageSize = 16384,
     [string]$OutZip = ''
@@ -64,7 +64,7 @@ RunChecked 'build native mounttx only' $clang @(
     '-o',$mounttx,$srcMounttx
 )
 RunChecked 'strip native mounttx' $strip @('--strip-all', $mounttx)
-RunChecked 'verify native mounttx' 'powershell' @('-NoProfile','-ExecutionPolicy','Bypass','-File',$verify,'-Readelf',$readelf,'-Binary',$mounttx,'-Mode','android-exe','-ExpectedLoadAlign',$alignHex,'-ExpectedRelroEndAlign',$alignHex,'-AllowedNeeded','libc.so,libdl.so','-RequireLibc')
+RunChecked 'verify native mounttx' (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') @('-NoProfile','-ExecutionPolicy','Bypass','-File',$verify,'-Readelf',$readelf,'-Binary',$mounttx,'-Mode','android-exe','-ExpectedLoadAlign',$alignHex,'-ExpectedRelroEndAlign',$alignHex,'-AllowedNeeded','libc.so,libdl.so','-RequireLibc')
 
 Get-ChildItem -LiteralPath $out -Recurse -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | ForEach-Object {
     $rel = $_.FullName.Substring($out.Length).TrimStart('\').Replace('\','/')
@@ -75,7 +75,7 @@ Get-ChildItem -LiteralPath $out -Recurse -File | Where-Object { $_.Name -ne 'SHA
 $pack = Join-Path $ScriptDir 'pack_yawasau_module_windows.ps1'
 NeedFile $pack 'pack_yawasau_module_windows.ps1'
 if ([string]::IsNullOrWhiteSpace($OutZip)) {
-    $OutZip = Join-Path (Split-Path -Parent $RootDir) 'YAWAsau_Mount_v1.4.81_remove_notify_real_id_profile_dedup_full_hotfix_20260830.zip'
+    $OutZip = Join-Path (Split-Path -Parent $RootDir) 'YAWAsau_Mount_v1.4.92_event_recovery_ndkr30_api28_20261006.zip'
 }
-RunChecked 'pack module with mounttx' 'powershell' @('-NoProfile','-ExecutionPolicy','Bypass','-File',$pack,'-ModuleRoot',$RootDir,'-NativeOut',$out,'-OutZip',$OutZip,'-IncludeMagiskPolicy','-RequireClassesDex')
+RunChecked 'pack module with mounttx' (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') @('-NoProfile','-ExecutionPolicy','Bypass','-File',$pack,'-ModuleRoot',$RootDir,'-NativeOut',$out,'-OutZip',$OutZip,'-IncludeMagiskPolicy','-RequireClassesDex')
 Write-Host "[OK] mounttx-only native rebuild completed: $OutZip"

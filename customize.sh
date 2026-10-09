@@ -3,12 +3,12 @@ MODID=dcimswitch
 DATA_DIR=/data/adb/dcimswitch
 CONF="$DATA_DIR/mount.conf"
 
-ui_print '── YAWAsau Mount v1.4.72 安裝 ──'
-ui_print '檢查環境：arm64 / Dex 通知 / static bindfs'
+ui_print '── YAWAsau Mount v1.4.92 安裝 ──'
+ui_print '檢查環境：arm64 / Dex 通知 / bindfs'
 [ "$ARCH" = arm64 ] || abort '不支援的架構：本模組只支援 arm64-v8a'
 
 ui_print '解壓模組檔案...'
-unzip -oq "$ZIPFILE" 'module.prop' 'core.sh' 'service.sh' 'mount.sh' 'control.sh' 'action.sh' 'uninstall.sh' 'sepolicy.rule' 'mount.conf.default' 'mount.conf.example' -d "$MODPATH" >/dev/null 2>&1 || abort '解壓核心檔案失敗'
+unzip -oq "$ZIPFILE" 'module.prop' 'core.sh' 'permissions.sh' 'service.sh' 'watchers.sh' 'user-state.sh' 'boot-completed.sh' 'mount.sh' 'control.sh' 'action.sh' 'uninstall.sh' 'sepolicy.rule' 'mount.conf.default' 'mount.conf.example' -d "$MODPATH" >/dev/null 2>&1 || abort '解壓核心檔案失敗'
 mkdir -p "$MODPATH/bin" "$MODPATH/webroot"
 unzip -oq "$ZIPFILE" 'bin/*' 'webroot/*' -d "$MODPATH" >/dev/null 2>&1 || abort '解壓執行檔或 WebUI 失敗'
 touch "$MODPATH/skip_mount"
@@ -60,18 +60,17 @@ else
   ui_print '設定檔：首次安裝，將建立預設 mount.conf'
 fi
 
-# Runtime cache may be rebuilt, but the live config above must never be deleted or replaced.
-rm -rf "$DATA_DIR/runtime/parsed" "$DATA_DIR/runtime/reload.lock" 2>/dev/null
-rm -f "$DATA_DIR/runtime/active_mounts.tsv" "$DATA_DIR/runtime/global.active" "$DATA_DIR/runtime/media_provider_ns.cache" 2>/dev/null
+# Do not reset runtime or remove locks while the previous module is running.
+# The new service performs its once-per-boot reset after the manager activates it.
 
 ui_print '設定權限...'
 set_perm_recursive "$MODPATH" 0 0 0755 0644
-for _f in service.sh mount.sh control.sh action.sh uninstall.sh bin/propwait bin/filewatch bin/confwatch bin/bindfs_mount.sh bin/bindfs bin/mount.fuse3 bin/mount_fusefs bin/magiskpolicy bin/mounttx bin/classes.dex bin/notify_client.sh; do [ -e "$MODPATH/$_f" ] && set_perm "$MODPATH/$_f" 0 0 0755; done
+for _f in permissions.sh service.sh watchers.sh boot-completed.sh mount.sh control.sh action.sh uninstall.sh bin/propwait bin/filewatch bin/confwatch bin/bindfs_mount.sh bin/bindfs bin/mount.fuse3 bin/mount_fusefs bin/magiskpolicy bin/mounttx bin/classes.dex bin/notify_client.sh; do [ -e "$MODPATH/$_f" ] && set_perm "$MODPATH/$_f" 0 0 0755; done
 set_perm "$MODPATH/core.sh" 0 0 0644
 [ -f "$MODPATH/sepolicy.rule" ] && set_perm "$MODPATH/sepolicy.rule" 0 0 0644
 
 if [ -f "$MODPATH/bin/bindfs" ] && [ -x "$MODPATH/bin/mount.fuse3" ]; then
-  ui_print 'Native：static bindfs + mount.fuse3 已就緒'
+  ui_print 'Native：bindfs + mount.fuse3 已就緒'
 else
   ui_print '警告：缺少 bindfs 或 mount.fuse3，bindfs_shared 可能不可用'
 fi
@@ -102,13 +101,7 @@ else
   fi
 fi
 
-ui_print '啟動服務...'
-# Stop old watcher processes from the currently active module, then start this package's service directly.
-if [ -x "/data/adb/modules/$MODID/control.sh" ]; then
-  sh "/data/adb/modules/$MODID/control.sh" stop_watchers >/dev/null 2>&1 || true
-fi
-rm -f "$DATA_DIR/runtime/"*.pid 2>/dev/null || true
-(sh "$MODPATH/service.sh" >/dev/null 2>&1 &) || true
-
-ui_print '完成：設定已保留，服務已啟動'
+# Staged modules_update paths are renamed at reboot. Launching workers from
+# there during installation can strand them on an obsolete script path.
+ui_print '完成：設定已保留，請重開機套用新版服務'
 ui_print '提示：掛載結果會由 Dex 通知彙總顯示；也可開 WebUI 查看狀態'

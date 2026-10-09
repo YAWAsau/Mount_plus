@@ -1,6 +1,6 @@
 id=dcimswitch
 name=YAWAsau Mount
-version=v1.4.87-profile-confwatch-race-dedup-20260912
-versionCode=1487
+version=v1.4.92-event-recovery-ndkr30-api28-20261006
+versionCode=1492
 author=Github@YAWAsau
-description=保留 v1.4.86 native source-refresh；修 Profile 內部 mount.conf 發佈被 confwatch 搶先捕捉，導致每次切換後重複顯示「掛載完成／已移除日常或工作」的通知競態
+description=media_rw 子目錄與檔案一次性權限修復；保留事件驅動、Liquid Glass WebUI、NDK r30/API28 元件

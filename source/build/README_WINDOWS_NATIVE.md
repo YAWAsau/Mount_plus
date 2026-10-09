@@ -45,7 +45,7 @@ native_out/SHA256SUMS.txt
 
 ```powershell
 .\build_yawasau_native_windows.ps1 `
-  -NdkVersion 28.2.13676358 `
+  -NdkVersion 30.0.16248370 `
   -Api 28 `
   -Msys2Root C:\msys64 `
   -PackModule
@@ -70,7 +70,7 @@ native_out/SHA256SUMS.txt
 
 Windows：
 
-- Android SDK + NDK `28.2.13676358`
+- Android SDK + NDK `30.0.16248370`
 - PowerShell 5+
 - MSYS2，並安裝 `meson ninja pkgconf autoconf automake libtool make python git file`
 - 官方 Magisk source 需要照 Magisk 上游文件準備 Python、JDK、Android SDK/NDK/Rust/ONDK 相關環境
@@ -105,7 +105,7 @@ powershell -ExecutionPolicy Bypass -File .\source\build\check_msys2_native_deps_
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\source\build\build_yawasau_native_windows.ps1 `
-  -NdkVersion 28.2.13676358 `
+  -NdkVersion 30.0.16248370 `
   -Api 28 `
   -AutoInstallMsys2
 ```
@@ -169,7 +169,7 @@ YAWAsauBuild/
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\source\build\build_yawasau_native_windows.ps1 `
-  -NdkVersion 28.2.13676358 `
+  -NdkVersion 30.0.16248370 `
   -Api 28 `
   -Msys2Root C:\msys64
 ```
@@ -184,7 +184,7 @@ powershell -ExecutionPolicy Bypass -File .\source\build\fetch_yawasau_native_sou
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\source\build\build_yawasau_native_windows.ps1 `
-  -NdkVersion 28.2.13676358 `
+  -NdkVersion 30.0.16248370 `
   -Api 28 `
   -Msys2Root C:\msys64 `
   -NoFetchSources `
@@ -302,7 +302,7 @@ Example:
 
 ```powershell
 .\build_yawasau_native_windows.ps1 `
-  -NdkVersion 28.2.13676358 `
+  -NdkVersion 30.0.16248370 `
   -Api 28 `
   -Msys2Root C:\msys64 `
   -BuildMagiskPolicy `

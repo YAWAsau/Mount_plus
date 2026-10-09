@@ -14,7 +14,7 @@ $ModuleRoot = [System.IO.Path]::GetFullPath($ModuleRoot)
 if ([string]::IsNullOrWhiteSpace($NativeOut)) { $NativeOut = Join-Path $ModuleRoot 'native_out' }
 $NativeOut = [System.IO.Path]::GetFullPath($NativeOut)
 if ([string]::IsNullOrWhiteSpace($OutZip)) {
-    $OutZip = Join-Path (Split-Path -Parent $ModuleRoot) 'YAWAsau_Mount_v1.4.81_remove_notify_real_id_profile_dedup_module_20260830.zip'
+    $OutZip = Join-Path (Split-Path -Parent $ModuleRoot) 'YAWAsau_Mount_v1.4.92_event_recovery_ndkr30_api28_20261006.zip'
 }
 
 function Fail([string]$m) { throw $m }
@@ -61,11 +61,12 @@ $mountFuse3 = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mount.fuse3') (Joi
 $mountFusefs = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mount_fusefs') (Join-Path $NativeOut 'native_out\bin\mount_fusefs') 'native_out\bin\mount_fusefs'
 $mounttx = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mounttx') (Join-Path $NativeOut 'native_out\bin\mounttx') 'native_out\bin\mounttx'
 $confwatch = ResolveNativeOutFile (Join-Path $NativeOut 'bin\confwatch') (Join-Path $NativeOut 'native_out\bin\confwatch') 'native_out\bin\confwatch'
-$Stage = Join-Path $ModuleRoot '.pack_stage_v1472'
+$Stage = Join-Path $ModuleRoot '.pack_stage_v1492'
+if (-not ([IO.Path]::GetFullPath($Stage).StartsWith($ModuleRoot.TrimEnd([char]92) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase))) { Fail 'Pack stage is outside ModuleRoot' }
 if (Test-Path -LiteralPath $Stage) { Remove-Item -LiteralPath $Stage -Recurse -Force }
 New-Item -ItemType Directory -Path $Stage -Force | Out-Null
 
-$baseFiles = @('module.prop','customize.sh','service.sh','mount.sh','control.sh','action.sh','uninstall.sh','sepolicy.rule','core.sh','mount.conf.default','mount.conf.example','README.md')
+$baseFiles = @('module.prop','customize.sh','service.sh','watchers.sh','user-state.sh','boot-completed.sh','mount.sh','control.sh','action.sh','uninstall.sh','sepolicy.rule','core.sh','permissions.sh','mount.conf.default','mount.conf.example','README.md','BUILD_INFO.json')
 foreach ($f in $baseFiles) {
     $src = Join-Path $ModuleRoot $f
     if (Test-Path -LiteralPath $src -PathType Leaf) {
@@ -104,6 +105,14 @@ if ($RequireClassesDex) {
         Fail "Dex-only notification module requires bin/classes.dex. Run build_yawasau_full_module_windows.ps1 or build_yawasau_dex_notify_module_windows.ps1, not the source/build-kit zip."
     }
 }
+
+# Hash exactly the packaged runtime files, including reused helpers and Dex.
+# native_out/SHA256SUMS also contains build-time headers and archives.
+Get-ChildItem -LiteralPath (Join-Path $Stage 'bin') -Recurse -File | ForEach-Object {
+    $rel = RelPathCompat $Stage $_.FullName
+    $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
+    "$hash  $rel"
+} | Sort-Object | Set-Content -LiteralPath (Join-Path $Stage 'NATIVE_SHA256SUMS.txt') -Encoding ASCII
 
 if (Test-Path -LiteralPath $OutZip) { Remove-Item -LiteralPath $OutZip -Force }
 Add-Type -AssemblyName System.IO.Compression

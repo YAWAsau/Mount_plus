@@ -1,6 +1,6 @@
-param(
+﻿param(
     [int]$Api = 28,
-    [string]$NdkVersion = '28.2.13676358',
+    [string]$NdkVersion = '30.0.16248370',
     [string]$NdkRoot = '',
     [string]$Msys2Root = 'C:\msys64',
     [string]$JavaHome = 'C:\Program Files\Android\Android Studio\jbr',

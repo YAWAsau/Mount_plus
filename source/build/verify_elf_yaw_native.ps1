@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true)][string]$Readelf,
     [Parameter(Mandatory=$true)][string]$Binary,
     [ValidateSet('android-exe','android-shared','static-nolibc')][string]$Mode = 'android-exe',

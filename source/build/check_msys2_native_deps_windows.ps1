@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Msys2Root = 'C:\msys64',
     [switch]$InstallPackages,
     [switch]$AutoInstallWinget

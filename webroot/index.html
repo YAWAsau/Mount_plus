@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <title>YAWAsau Mount</title>
   <link rel="stylesheet" href="./assets/style.css">
@@ -10,7 +10,7 @@
 <body>
   <main class="wrap">
     <section class="hero card">
-      <div class="eyebrow">YAWAsau Mount</div>
+      <div class="eyebrow"><svg class="brand-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>YAWAsau Mount</div>
       <div class="current-row">
         <span id="dot" class="dot"></span>
         <div><div class="muted">目前狀態</div><div id="current" class="current">讀取中…</div></div>
@@ -48,7 +48,7 @@
 
     <p class="foot">目前生效設定固定為 /data/adb/dcimswitch/mount.conf；修改此檔後由 confwatch/inotify 即時套用。模組目錄內的 mount.conf 只是範例/模板，不會被監聽。</p>
   </main>
-  <div id="toast" class="toast hidden"></div>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
   <script src="./assets/index.js"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
-param(
+﻿param(
     [string]$MagiskSrc = '',
     [string]$MagiskRef = '',
-    [string]$NdkVersion = '28.2.13676358',
+    [string]$NdkVersion = '30.0.16248370',
     [string]$NdkRoot = '',
     [string]$Python = 'auto',
     [switch]$SetupMagiskNdk,

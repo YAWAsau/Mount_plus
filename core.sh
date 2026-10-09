@@ -1,9 +1,10 @@
 #!/system/bin/sh
-# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.87-profile-confwatch-race-dedup
+# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.92-event-recovery-ndkr30-api28
 # Internal library only. mount.conf is parsed as data; it is never sourced.
 
 MODDIR=${MODDIR:-${0%/*}}
 case "$MODDIR" in */lib|*/bin) MODDIR=${MODDIR%/*} ;; esac
+. "$MODDIR/user-state.sh" || return 90
 DATA_DIR=/data/adb/dcimswitch
 RUNTIME="$DATA_DIR/runtime"
 CONF="$DATA_DIR/mount.conf"
@@ -48,7 +49,7 @@ CONFIG_STATE="$RUNTIME/config.state"
 APPLIED_HASH="$RUNTIME/config.applied.cksum"
 PROFILE_INTERNAL_EVENT="$RUNTIME/profile_internal.conf_event"
 NS_BG_GEN="$RUNTIME/ns_background.generation"
-MODULE_VERSION=v1.4.87-profile-confwatch-race-dedup-20260912
+MODULE_VERSION=v1.4.92-event-recovery-ndkr30-api28-20261006
 mkdir -p "$RUNTIME" "$PARSED" 2>/dev/null
 DELIM='|'
 
@@ -226,6 +227,12 @@ notify_unlock_start_once() {
 
 notify_mount_summary() {
   _nms_reason=${1:-mount}
+  case "$_nms_reason" in
+    profile_change|duplicate_profile_change|duplicate_config_event)
+      logi "通知略過：Profile/duplicate 不發一般掛載摘要｜reason=$_nms_reason"
+      return 0
+      ;;
+  esac
   [ -f "$PARSED/mounts.desired" ] || return 0
   _nms_want=$(mount_desired_count); [ -n "$_nms_want" ] || _nms_want=0
   _nms_have=$(mount_active_matching_count); [ -n "$_nms_have" ] || _nms_have=0
@@ -312,6 +319,20 @@ notify_config_failed() {
 notify_config_apply_result() {
   _ncar_before=$1
   _ncar_reason=${2:-config_event}
+  case "$_ncar_reason" in
+    profile_change|duplicate_*)
+      logi "通知略過：Profile/duplicate 不發 config 套用結果｜reason=$_ncar_reason"
+      return 0
+      ;;
+  esac
+  _ncar_state_reason=$(config_state_value REASON 2>/dev/null)
+  _ncar_state_hash=$(config_state_value HASH 2>/dev/null)
+  case "$_ncar_state_reason" in
+    profile_change|duplicate_*)
+      logi "通知略過：目前 config.state=$_ncar_state_reason，不發 config 套用結果｜reason=$_ncar_reason｜hash=$_ncar_state_hash"
+      return 0
+      ;;
+  esac
   [ -f "$PARSED/mounts.desired" ] || return 0
   _ncar_want=$(mount_desired_count); _ncar_have=$(mount_active_matching_count)
   case "$_ncar_want" in ''|*[!0-9]*) _ncar_want=0;; esac
@@ -709,15 +730,16 @@ parse_config() {
       version=*) ;;
       partition=*|mount_point=*|fs=*|vendor_gallery_quiesce=*) ;;
       dir=*)
-        _dv=${_line#dir=}; _dp=${_dv%%|*}; [ "$_dp" != "$_dv" ] || { loge "mount.conf 第 $_lineno 行 dir 格式錯誤"; _err=1; continue; }
-        _dpol=${_dv#*|}; _dp_norm=$(normalize_source "$_mp" "$_dp") || { loge "mount.conf 第 $_lineno 行 dir 路徑無效/含 traversal"; _err=1; continue; }
+        # mksh treats an unquoted | in a trim pattern as alternation.
+        _dv=${_line#dir=}; _dp=${_dv%%'|'*}; [ "$_dp" != "$_dv" ] || { loge "mount.conf 第 $_lineno 行 dir 格式錯誤"; _err=1; continue; }
+        _dpol=${_dv#*'|'}; _dp_norm=$(normalize_source "$_mp" "$_dp") || { loge "mount.conf 第 $_lineno 行 dir 路徑無效/含 traversal"; _err=1; continue; }
         case "$_dpol" in preserve|media_rw) ;; *) loge "mount.conf 第 $_lineno 行 dir policy 無效"; _err=1; continue;; esac
         printf '%s|%s
 ' "$_dp_norm" "$_dpol" >> "$_tmp/dirs"
         ;;
       profile=*)
-        _v=${_line#profile=}; _g=${_v%%|*}; [ "$_g" != "$_v" ] || { loge "mount.conf 第 $_lineno 行 profile 格式錯誤"; _err=1; continue; }
-        _sel=${_v#*|}; valid_id "$_g" && valid_id "$_sel" || { loge "mount.conf 第 $_lineno 行 profile 名稱無效"; _err=1; continue; }
+        _v=${_line#profile=}; _g=${_v%%'|'*}; [ "$_g" != "$_v" ] || { loge "mount.conf 第 $_lineno 行 profile 格式錯誤"; _err=1; continue; }
+        _sel=${_v#*'|'}; valid_id "$_g" && valid_id "$_sel" || { loge "mount.conf 第 $_lineno 行 profile 名稱無效"; _err=1; continue; }
         printf '%s|%s\n' "$_g" "$_sel" >> "$_tmp/profiles"
         ;;
       mount=*)
@@ -1057,27 +1079,14 @@ validate_config_report() {
   : > "$_vcr_log" 2>/dev/null
   parse_config "$_vcr_snap" "$_vcr_parsed" >/dev/null 2>&1
   _vcr_rc=$?
-  _vcr_used_cache=0
-  if [ "$_vcr_rc" -ne 0 ] && [ "$_vcr_cfg" = "$CONF" ]; then
-    _vcr_applied=$(cat "$APPLIED_HASH" 2>/dev/null)
-    if [ -n "$_vcr_hash" ] && [ "$_vcr_hash" = "$_vcr_applied" ] && parsed_cache_matches_hash "$_vcr_hash" && [ -f "$PARSED_REAL/mounts.all" ]; then
-      rm -rf "$_vcr_parsed" 2>/dev/null; mkdir -p "$_vcr_parsed" 2>/dev/null
-      for _vcr_f in global profiles dirs mounts.all mounts.desired; do cp -f "$PARSED_REAL/$_vcr_f" "$_vcr_parsed/$_vcr_f" 2>/dev/null || true; done
-      _vcr_rc=0
-      _vcr_used_cache=1
-    fi
-  fi
+  # Validation must describe this parse. A hash left from a previous boot does
+  # not turn a parser error or a global-only fallback snapshot into success.
 
   if [ "$_vcr_rc" -eq 0 ]; then
     PARSED=$_vcr_parsed
     _vcr_total=$(wc -l < "$_vcr_parsed/mounts.all" 2>/dev/null | tr -d ' '); [ -n "$_vcr_total" ] || _vcr_total=0
     _vcr_desired=$(wc -l < "$_vcr_parsed/mounts.desired" 2>/dev/null | tr -d ' '); [ -n "$_vcr_desired" ] || _vcr_desired=0
-    if [ "$_vcr_used_cache" -eq 1 ]; then
-      echo "mount rows：OK（使用最後成功套用快取）"
-      echo "  說明：live mount.conf 的 hash 已是最後成功套用版本；本次 dryrun parser 回報與快取不一致，未污染正式狀態。"
-    else
-      echo "mount rows：OK（total=$_vcr_total desired=$_vcr_desired）"
-    fi
+    echo "mount rows：OK（total=$_vcr_total desired=$_vcr_desired）"
     if [ -s "$_vcr_parsed/profiles" ]; then
       echo "Profiles："
       while IFS='|' read -r _vcr_g _vcr_s; do [ -n "$_vcr_g" ] && echo "  $_vcr_g=$_vcr_s"; done < "$_vcr_parsed/profiles"
@@ -1432,12 +1441,7 @@ media_cache_refresh() {
 ensure_media_pid() { _p=$(media_cache_pid "$1" 2>/dev/null || true); [ -n "$_p" ] || _p=$(media_cache_refresh "$1" 2>/dev/null || true); [ -n "$_p" ] && printf '%s\n' "$_p"; }
 
 user_unlocked() {
-  _u=$1
-  _x=$(cmd user is-user-unlocked "$_u" 2>/dev/null | tr 'A-Z' 'a-z' | head -n1)
-  case "$_x" in true|1|*' true'*) return 0;; false|0|*' false'*) return 1;; esac
-  [ "$(getprop "sys.user.$_u.ce_available" 2>/dev/null)" = true ] && return 0
-  [ "$(getprop "sys.user.$_u.ce_available" 2>/dev/null)" = 1 ] && return 0
-  dumpsys user 2>/dev/null | grep -A8 -F "UserInfo{$_u:" | grep -q 'state=RUNNING_UNLOCKED'
+  yaw_user_unlocked "$1"
 }
 
 user_storage_available() {
@@ -1683,15 +1687,28 @@ mount_active_background_sync() {
   return 0
 }
 
-policy_apply() {
+policy_apply() (
   _src=$1; _pol=$2
   _uid=$(stat -c '%u' "$_src" 2>/dev/null); _gid=$(stat -c '%g' "$_src" 2>/dev/null); _mode=$(stat -c '%a' "$_src" 2>/dev/null); _ctx=$(ls -Zd "$_src" 2>/dev/null | awk '{print $1}')
   logi "來源權限稽核｜$_src｜uid=$_uid gid=$_gid mode=$_mode context=${_ctx:-unknown}｜policy=$_pol"
   [ "$_pol" = media_rw ] || return 0
-  [ "$_uid" = 1023 ] && [ "$_gid" = 1023 ] || chown media_rw:media_rw "$_src" 2>/dev/null || logw "來源 chown media_rw 失敗｜$_src"
-  [ "$_mode" = 2770 ] || chmod 2770 "$_src" 2>/dev/null || logw "來源 chmod 2770 失敗｜$_src"
-  if command -v chcon >/dev/null 2>&1 && [ "$_ctx" != u:object_r:media_rw_data_file:s0 ]; then chcon u:object_r:media_rw_data_file:s0 "$_src" 2>/dev/null || logw "來源 chcon 失敗｜$_src"; fi
-}
+  _pa_bb=''
+  for _pa_candidate in /data/adb/ksu/bin/busybox /data/adb/magisk/busybox "$(command -v busybox 2>/dev/null)"; do
+    [ -x "$_pa_candidate" ] && { _pa_bb=$_pa_candidate; break; }
+  done
+  [ -n "$_pa_bb" ] && [ -f "$MODDIR/permissions.sh" ] || {
+    loge "media_rw 遞迴權限修復工具缺失｜來源=$_src"; return 1;
+  }
+  _pa_exclude="$RUNTIME/media-exclusions.$$"
+  trap 'rm -f "$_pa_exclude"' EXIT
+  : > "$_pa_exclude" || return 1
+  [ ! -f "$PARSED/mounts.all" ] || awk -F'|' '$10!="media_rw" {print $3}' "$PARSED/mounts.all" >> "$_pa_exclude"
+  [ ! -f "$PARSED/dirs" ] || awk -F'|' '$2!="media_rw" {print $1}' "$PARSED/dirs" >> "$_pa_exclude"
+  ASH_STANDALONE=1 YAW_PERMISSION_BUSYBOX="$_pa_bb" "$_pa_bb" sh "$MODDIR/permissions.sh" "$_src" "$DATA_DIR/permission-state" "$_pa_exclude" >> "$LOG" 2>&1
+  _pa_rc=$?
+  [ "$_pa_rc" -eq 0 ] || loge "media_rw 子目錄／檔案權限修復失敗｜來源=$_src｜rc=$_pa_rc"
+  return "$_pa_rc"
+)
 
 
 bindfs_ready() {
@@ -2190,12 +2207,13 @@ ensure_source_dir() {
     mkdir -p "$_src" 2>/dev/null || return 1
     logi "已依 mount.conf 建立來源目錄｜$_src"
   fi
-  policy_apply "$_src" "$_pol"
+  policy_apply "$_src" "$_pol" || return 1
   return 0
 }
 
 migrate_once() {
   _u=$1; _src=$2; _lower=$3; _mode=$4
+  _migrate_policy=${5:-preserve}
   [ "$_mode" = once ] || return 0
   [ "$_src" != "$_lower" ] || return 0
   _id=$(printf '%s' "$_u|$_lower" | cksum 2>/dev/null | awk '{print $1}')
@@ -2224,6 +2242,9 @@ migrate_once() {
     mv "$_item" "$_src/" 2>/dev/null || { logw "搬移失敗，保留待下次重試｜$_item"; _mfail=1; }
   done < "$_list"
   rm -f "$_list" 2>/dev/null
+  # Moved files retain their old private metadata, even when the destination
+  # was already repaired. Repair after the move and propagate partial failures.
+  YAW_MEDIA_REPAIR_FORCE=1 policy_apply "$_src" "$_migrate_policy" || _mfail=1
   if [ "$_mfail" -ne 0 ]; then return 1; fi
   : > "$_marker" 2>/dev/null || true
   logi "一次性搬移完成｜$_lower → $_src"
@@ -2334,7 +2355,7 @@ apply_reload() {
 
   _pre_hash=$(config_hash "$CONF" 2>/dev/null || true)
   _pre_applied=$(cat "$APPLIED_HASH" 2>/dev/null)
-  if [ -n "$_pre_hash" ] && [ "$_pre_hash" = "$_pre_applied" ] && parsed_cache_matches_hash "$_pre_hash"; then
+  if [ -n "$_pre_hash" ] && [ "$_pre_hash" = "$_pre_applied" ] && parsed_cache_matches_hash "$_pre_hash" && [ "$(config_state_value STATE)" = valid ]; then
     if active_sources_need_refresh_for_file "$ACTIVE"; then
       logw "設定內容未變但偵測到來源 inode 變更，仍執行掛載重建｜原因=$_reason"
     else
@@ -2369,7 +2390,7 @@ apply_reload() {
   case "$_reason" in
     config_event|config_event_retry|manual|webui|profile_prerepair)
       _applied_after_lock=$(cat "$APPLIED_HASH" 2>/dev/null)
-      if [ -n "$_cfg_hash" ] && [ "$_cfg_hash" = "$_applied_after_lock" ] && parsed_cache_matches_hash "$_cfg_hash"; then
+      if [ -n "$_cfg_hash" ] && [ "$_cfg_hash" = "$_applied_after_lock" ] && parsed_cache_matches_hash "$_cfg_hash" && [ "$(config_state_value STATE)" = valid ]; then
         if active_sources_need_refresh_for_file "$ACTIVE"; then
           logw "設定內容未變但偵測到來源 inode 變更，仍執行掛載重建｜原因=$_reason"
         else
@@ -2608,7 +2629,7 @@ apply_reload() {
       loge "目標已被未知來源占用，拒絕堆疊掛載｜名稱=$_n｜目標=$_l｜目前來源=${_occupied:-unknown}"
       _fail=$((_fail+1)); continue
     fi
-    migrate_once "$_u" "$_s" "$_l" "$_migrate" || { logw "一次性搬移未完整成功｜名稱=$_n"; _fail=$((_fail+1)); }
+    migrate_once "$_u" "$_s" "$_l" "$_migrate" "$_pol" || { logw "一次性搬移或權限修復未完整成功｜名稱=$_n"; _fail=$((_fail+1)); }
     if row_mounted "$_u" "$_s" "$_l" "$_pol"; then
       _bok=1
     else
@@ -2679,6 +2700,10 @@ preflight_desired_mounts() {
     row_scope_match "$_pf_scope" "$_pf_u" || continue
     _pf_row=$(printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s' "$_pf_n" "$_pf_u" "$_pf_s" "$_pf_t" "$_pf_l" "$_pf_v" "$_pf_e" "$_pf_g" "$_pf_pv" "$_pf_pol" "$_pf_create" "$_pf_migrate")
     if [ -f "$ACTIVE" ] && grep -Fqx "$_pf_row" "$ACTIVE" 2>/dev/null && row_mounted "$_pf_u" "$_pf_s" "$_pf_l" "$_pf_pol"; then
+      policy_apply "$_pf_s" "$_pf_pol" || {
+        loge "預檢失敗：既有掛載來源權限修復失敗｜名稱=$_pf_n｜來源=$_pf_s"
+        _pf_fail=$((_pf_fail+1))
+      }
       continue
     fi
     if [ -n "$_pf_v" ] && ! user_storage_available "$_pf_u"; then
@@ -2692,7 +2717,7 @@ preflight_desired_mounts() {
       continue
     fi
     if ! ensure_source_dir "$_pf_s" "$_pf_create" "$_pf_pol"; then
-      logw "預檢失敗：來源不存在或無法建立，保留既有掛載｜名稱=$_pf_n｜來源=$_pf_s"
+      logw "預檢失敗：來源不存在、無法建立或權限修復失敗，保留既有掛載｜名稱=$_pf_n｜來源=$_pf_s"
       _pf_fail=$((_pf_fail+1))
       continue
     fi
@@ -2974,7 +2999,12 @@ set_profile() {
   profile_native_preflight_rows "$_sp_changed_old" >/dev/null 2>&1 || true
   while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
     [ -n "$_sp_l" ] || continue
-    migrate_once "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_migrate" || true
+    if ! migrate_once "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_migrate" "$_sp_pol"; then
+      loge "Profile 切換中止：搬移或權限修復失敗，保留原掛載｜來源=$_sp_s"
+      rm -f $_sp_cleanup 2>/dev/null
+      lock_release; trap - EXIT INT TERM
+      return 9
+    fi
   done < "$_sp_changed_new"
 
   logi "Profile native transaction 呼叫 mounttx｜group=$_sp_group｜$_sp_current → $_sp_value｜old=$(wc -l < "$_sp_changed_old" 2>/dev/null)｜new=$(wc -l < "$_sp_changed_new" 2>/dev/null)"

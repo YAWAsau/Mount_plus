@@ -1,6 +1,6 @@
-param(
+﻿param(
     [int]$Api = 28,
-    [string]$NdkVersion = '28.2.13676358',
+    [string]$NdkVersion = '30.0.16248370',
     [string]$NdkRoot = '',
     [string]$Msys2Root = 'C:\msys64',
     [string]$WorkDir = 'native_work',
@@ -368,7 +368,7 @@ function Resolve-Msys2Bash() {
         $helper = Join-Path $ScriptDir 'check_msys2_native_deps_windows.ps1'
         Need-File $helper 'check_msys2_native_deps_windows.ps1'
         Log '[INFO] MSYS2 not found; AutoInstallMsys2 enabled, invoking helper with winget bootstrap.'
-        Run-Checked -Title 'install MSYS2 + native deps' -Exe 'powershell' -ArgList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$helper,'-Msys2Root',$Msys2Root,'-AutoInstallWinget','-InstallPackages')
+        Run-Checked -Title 'install MSYS2 + native deps' -Exe (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$helper,'-Msys2Root',$Msys2Root,'-AutoInstallWinget','-InstallPackages')
         $found = Find-Msys2Bash
         if ($found) { return $found }
         Fail 'MSYS2 bootstrap completed but bash.exe is still not discoverable. Rerun with -Msys2Root <actual-msys2-root>.'
@@ -487,6 +487,10 @@ function Write-SourceHashes {
 
 
 $ndk = Resolve-NdkRoot
+$ndkProperties = Join-Path $ndk 'source.properties'
+Need-File $ndkProperties 'NDK source.properties'
+$ndkRevision = ((Get-Content -LiteralPath $ndkProperties | Select-String '^Pkg.Revision\s*=' | Select-Object -First 1).Line -split '=',2)[1].Trim()
+if ($ndkRevision -ne $NdkVersion) { Fail "NDK revision mismatch: requested=$NdkVersion actual=$ndkRevision" }
 $sdkRootForBuild = Resolve-SdkRootFromNdk $ndk
 $toolchain = Join-Path $ndk 'toolchains\llvm\prebuilt\windows-x86_64'
 $clang = Join-Path $toolchain "bin\aarch64-linux-android$Api-clang.cmd"
@@ -499,8 +503,30 @@ Need-File $strip 'llvm-strip'
 $verifyScript = Join-Path $ScriptDir 'verify_elf_yaw_native.ps1'
 Need-File $verifyScript 'verify_elf_yaw_native.ps1'
 
+function Verify-NativeArtifact([string]$Binary, [string]$Mode) {
+    $verifyParams = @{
+        Readelf = $readelf
+        Binary = $Binary
+        Mode = $Mode
+        ExpectedLoadAlign = $alignHex
+        ExpectedRelroEndAlign = $alignHex
+    }
+    if ($Mode -eq 'android-exe') {
+        $verifyParams['AllowedNeeded'] = @('libc.so','libdl.so')
+        $verifyParams['RequireLibc'] = $true
+    }
+    # Invoke the verifier in this PowerShell process. No nested host is needed.
+    & $verifyScript @verifyParams | ForEach-Object { Log $_.ToString() }
+    if ($LASTEXITCODE -ne 0) { Fail "ELF verification failed: $Binary" }
+}
+
+
 $outPath = [System.IO.Path]::GetFullPath((Join-Path $RootDir $OutDir))
 $workPath = [System.IO.Path]::GetFullPath((Join-Path $RootDir $WorkDir))
+$rootPrefix = [IO.Path]::GetFullPath($RootDir).TrimEnd([char]92) + [IO.Path]::DirectorySeparatorChar
+foreach ($buildPath in @($outPath, $workPath)) {
+    if (-not $buildPath.StartsWith($rootPrefix, [StringComparison]::OrdinalIgnoreCase)) { Fail "Build directory must be within module root: $buildPath" }
+}
 if (-not $KeepWork) {
     if (Test-Path -LiteralPath $workPath) { Remove-Item -LiteralPath $workPath -Recurse -Force }
 }
@@ -720,7 +746,7 @@ export ac_cv_prog_WINDMC="`$WORK/fakebin/aarch64-linux-android-windmc"
 export ac_cv_prog_ac_ct_WINDMC="`$WORK/fakebin/windmc"
 "@
 
-    $crossFile = Join-Path $workPath 'android-aarch64-ndk28-api28.ini'
+    $crossFile = Join-Path $workPath 'android-aarch64-ndk30-api28.ini'
     $crossText = @"
 [binaries]
 c = 'aarch64-linux-android$Api-clang.cmd'
@@ -1118,7 +1144,7 @@ chmod +x "`$OUT/bin/bindfs" 2>/dev/null || true
     Need-File $libfuseStaticOut 'libfuse3.a static output'
     Need-File $bindfsOut 'static-fuse bindfs output'
     Run-Checked -Title 'strip bindfs' -Exe $strip -ArgList @('--strip-all', $bindfsOut)
-    Run-Checked -Title 'verify static-fuse bindfs' -Exe 'powershell' -ArgList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$verifyScript,'-Readelf',$readelf,'-Binary',$bindfsOut,'-Mode','android-exe','-ExpectedLoadAlign',$alignHex,'-ExpectedRelroEndAlign',$alignHex,'-AllowedNeeded','libc.so,libdl.so','-RequireLibc')
+    Verify-NativeArtifact -Binary $bindfsOut -Mode 'android-exe'
 }
 
 
@@ -1137,14 +1163,14 @@ $sysroot = Join-Path $toolchain 'sysroot'
 $target = "aarch64-linux-android$Api"
 Run-Checked -Title 'build native confwatch stable-content watcher' -Exe $clangExe -ArgList @(
     "--target=$target",
-    '-nostdlib','-static',
+    '-nostdlib','-static','-ffreestanding','-fno-builtin',
     '-Wall','-Wextra','-Werror','-O2',
     "-Wl,-z,max-page-size=$PageSize",
     "-Wl,-z,common-page-size=$PageSize",
     '-o',$confwatchOut,$confwatchStart,$confwatchSrc
 )
 Run-Checked -Title 'strip native confwatch helper' -Exe $strip -ArgList @('--strip-all', $confwatchOut)
-Run-Checked -Title 'verify native confwatch helper' -Exe 'powershell' -ArgList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$verifyScript,'-Readelf',$readelf,'-Binary',$confwatchOut,'-Mode','static-nolibc','-ExpectedLoadAlign',$alignHex,'-ExpectedRelroEndAlign',$alignHex)
+    Verify-NativeArtifact -Binary $confwatchOut -Mode 'static-nolibc'
 
 # v1.4.62: always build the native mount.fuse3 helper used by static libfuse.
 $helperSrc = Join-Path $RootDir 'source\mount_fuse3_helper.c'
@@ -1165,7 +1191,7 @@ Run-Checked -Title 'build native mount.fuse3 helper' -Exe $clangExe -ArgList @(
     '-o',$helperOut,$helperSrc
 )
 Run-Checked -Title 'strip native mount.fuse3 helper' -Exe $strip -ArgList @('--strip-all', $helperOut)
-Run-Checked -Title 'verify native mount.fuse3 helper' -Exe 'powershell' -ArgList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$verifyScript,'-Readelf',$readelf,'-Binary',$helperOut,'-Mode','android-exe','-ExpectedLoadAlign',$alignHex,'-ExpectedRelroEndAlign',$alignHex,'-AllowedNeeded','libc.so,libdl.so','-RequireLibc')
+    Verify-NativeArtifact -Binary $helperOut -Mode 'android-exe'
 Copy-Item -LiteralPath $helperOut -Destination $helperAlias -Force
 
 
@@ -1183,7 +1209,7 @@ Run-Checked -Title 'build native mounttx profile/source-refresh transaction help
     '-o',$mounttxOut,$mounttxSrc
 )
 Run-Checked -Title 'strip native mounttx helper' -Exe $strip -ArgList @('--strip-all', $mounttxOut)
-Run-Checked -Title 'verify native mounttx helper' -Exe 'powershell' -ArgList @('-NoProfile','-ExecutionPolicy','Bypass','-File',$verifyScript,'-Readelf',$readelf,'-Binary',$mounttxOut,'-Mode','android-exe','-ExpectedLoadAlign',$alignHex,'-ExpectedRelroEndAlign',$alignHex,'-AllowedNeeded','libc.so,libdl.so','-RequireLibc')
+    Verify-NativeArtifact -Binary $mounttxOut -Mode 'android-exe'
 
 if ($BuildMagiskPolicy) {
     if ([string]::IsNullOrWhiteSpace($MagiskSrc)) { $MagiskSrc = Join-Path $RootDir 'third_party\Magisk' }
@@ -1198,7 +1224,7 @@ if ($BuildMagiskPolicy) {
         Log "[INFO] official Magisk source not found; fetching official topjohnwu/Magisk source to: $MagiskSrc"
         $fetchArgs = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$fetchMagisk,'-MagiskSrc',$MagiskSrc)
         if (-not [string]::IsNullOrWhiteSpace($MagiskRef)) { $fetchArgs += @('-Ref',$MagiskRef) }
-        Run-Checked -Title 'fetch official Magisk source' -Exe 'powershell' -ArgList $fetchArgs
+        Run-Checked -Title 'fetch official Magisk source' -Exe (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgList $fetchArgs
     }
     Need-Dir $MagiskSrc 'official Magisk source'
     Need-File (Join-Path $MagiskSrc 'build.py') 'Magisk build.py'
@@ -1280,6 +1306,17 @@ Get-ChildItem -LiteralPath $outPath -Recurse -File | Where-Object { $_.Name -ne 
 } | Sort-Object | Set-Content -LiteralPath $shaFile -Encoding ASCII
 
 Log ''
+$buildInfo = [ordered]@{
+    ndk_revision = $ndkRevision
+    android_api_target = $Api
+    target = "aarch64-linux-android$Api"
+    load_alignment = $PageSize
+    rebuilt = @('bindfs (libfuse3 linked statically)', 'confwatch (static, no libc)', 'mount.fuse3', 'mount_fusefs (alias)', 'mounttx')
+    retained_from_input = @('filewatch', 'propwait')
+    magiskpolicy = $(if ($BuildMagiskPolicy) { 'rebuilt with upstream ONDK' } else { 'retained from input; not an NDK r30 rebuild' })
+    compatibility = 'API target and ELF checks do not replace Android device runtime tests.'
+}
+$buildInfo | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $RootDir 'BUILD_INFO.json') -Encoding UTF8
 Log '[OK] native build completed'
 Log "Output: $outPath"
 Log 'Module runtime paths after packing:'
@@ -1297,5 +1334,5 @@ if ($PackModule) {
     if (-not [string]::IsNullOrWhiteSpace($ModuleZipOut)) { $packArgs += @('-OutZip',$ModuleZipOut) }
     if ($IncludeMagiskPolicy) { $packArgs += @('-IncludeMagiskPolicy') }
     Write-Host '[WARN] build_yawasau_native_windows.ps1 packs native artifacts only. Dex-only notifications require build_yawasau_full_module_windows.ps1.' -ForegroundColor Yellow
-    Run-Checked -Title 'pack complete module with native artifacts' -Exe 'powershell' -ArgList $packArgs
+    Run-Checked -Title 'pack complete module with native artifacts' -Exe (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -ArgList $packArgs
 }

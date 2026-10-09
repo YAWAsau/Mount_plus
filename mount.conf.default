@@ -31,7 +31,8 @@ vendor_gallery_quiesce=auto
 # ─────────────────────────────────────────────
 # 格式：dir=資料夾完整路徑|權限策略
 # preserve = 只建立/檢查，不主動修改原本權限
-# media_rw = 將這個「目錄本身」整理成 Android 媒體目錄需要的權限；不遞迴修改裡面的檔案
+# media_rw = 首次套用時遞迴修復共用儲存權限（目錄與一般檔案）；成功後快取，不在待機掃描
+# preserve / bindfs_shared 來源、子項符號連結與巢狀掛載不會被此遞迴修復修改
 # 不需要的 dir= 行可以直接刪掉。
 dir=/mnt/YAWAsau/Pictures/Screenshots|media_rw
 dir=/mnt/YAWAsau/DCIM/Camera|media_rw
