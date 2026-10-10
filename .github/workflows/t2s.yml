@@ -1,1 +1,34 @@
+name: Convert Traditional Chinese to Simplified
 
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install OpenCC
+        run: sudo apt-get update && sudo apt-get install -y opencc
+
+      - name: Convert files
+        run: |
+          find . -type f \( -name "*.md" -o -name "*.sh" -o -name "*.conf" -o -name "*.json" -o -name "*.txt" \) \
+            -not -path "./.git/*" \
+            -exec opencc -c t2s -i {} -o {} \;
+
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --staged --quiet || git commit -m "Auto-convert Traditional Chinese to Simplified [skip ci]"
+          git push origin HEAD:${{ github.ref_name }}
