@@ -1,0 +1,81 @@
+name: Build Mount_plus Module
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Python 3
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK r30
+        shell: pwsh
+        run: |
+          sdkmanager "ndk;30.0.16248370"
+          $ndkPath = Join-Path $env:ANDROID_HOME "ndk\30.0.16248370"
+          if (-not (Test-Path $ndkPath)) { throw "NDK not found at $ndkPath" }
+          "ANDROID_NDK_HOME=$ndkPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "ANDROID_NDK_ROOT=$ndkPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "NDK_PATH=$ndkPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Ensure MSYS2
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "C:\msys64\usr\bin\bash.exe")) {
+            choco install msys2 -y --no-progress
+          }
+          C:\msys64\usr\bin\bash.exe -lc "echo MSYS2 ready"
+
+      - name: Install MSYS2 build tools
+        shell: pwsh
+        run: |
+          C:\msys64\usr\bin\bash.exe -lc "pacman -S --needed --noconfirm meson ninja pkgconf autoconf automake libtool make python git file"
+
+      - name: Build module
+        shell: pwsh
+        working-directory: source/build
+        run: |
+          .\build_yawasau_full_module_windows.ps1 `
+            -Api 28 `
+            -NdkVersion 30.0.16248370 `
+            -NdkRoot "$env:NDK_PATH" `
+            -Msys2Root "C:\msys64" `
+            -JavaHome "$env:JAVA_HOME" `
+            -SdkPath "$env:ANDROID_HOME"
+
+      - name: List built files
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path $env:GITHUB_WORKSPACE -Filter "YAWAsau_Mount_*.zip" -Recurse | Format-Table FullName, Length
+
+      - name: Upload module artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mount_plus-Module
+          path: ${{ github.workspace }}\YAWAsau_Mount_*.zip
+          if-no-files-found: error
