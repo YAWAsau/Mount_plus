@@ -72,6 +72,6 @@ dependencies {
 
 ## v1.4.76 修正
 
-- 修正安裝腳本未將 `bin/mounttx` 設為 0755，導致 WebUI/Profile 切換報「缺少 native mounttx」。
-- `service.sh` 新增開機自修：若 `bin/mounttx` 存在但不可執行，會自動 `chmod 0755`。
-- Profile native transaction、`bindfs_shared` orchestration、rollback/probe 邏輯沿用 v1.4.75，不改掛載策略。
+- 修正安装脚本未将 `bin/mounttx` 设为 0755，导致 WebUI/Profile 切换报「缺少 native mounttx」。
+- `service.sh` 新增开机自修：若 `bin/mounttx` 存在但不可执行，会自动 `chmod 0755`。
+- Profile native transaction、`bindfs_shared` orchestration、rollback/probe 逻辑沿用 v1.4.75，不改挂载策略。

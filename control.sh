@@ -78,7 +78,7 @@ case "$cmd" in
     ;;
   toggle_primary)
     _info=$(sh "$0" primary_action_info 2>/dev/null); _irc=$?
-    if [ "$_irc" -eq 10 ]; then echo "未設定可切換項目"; exit 0; fi
+    if [ "$_irc" -eq 10 ]; then echo "未设定可切换项目"; exit 0; fi
     [ "$_irc" -eq 0 ] || exit "$_irc"
     _g=$(printf '%s\n' "$_info" | cut -d'|' -f1)
     _next=$(printf '%s\n' "$_info" | cut -d'|' -f4)
@@ -88,43 +88,43 @@ case "$cmd" in
 
   notify_test)
     _nb=$(notify_backend_status 2>/dev/null)
-    if notify_post "YAWAsau Mount" "Dex 通知測試｜backend=$_nb" "debug_notify_test"; then
-      echo "通知測試已送出｜backend=$_nb"
+    if notify_post "YAWAsau Mount" "Dex 通知测试｜backend=$_nb" "debug_notify_test"; then
+      echo "通知测试已送出｜backend=$_nb"
     else
-      echo "通知測試未送出｜backend=$_nb｜log=$DEX_NOTIFY_LOG"
+      echo "通知测试未送出｜backend=$_nb｜log=$DEX_NOTIFY_LOG"
     fi
     ;;
   notify_backend) notify_backend_status ;;
   log)
-    echo '===== service.log｜開機 / 解鎖 / 事件監聽 ====='
+    echo '===== service.log｜开机 / 解锁 / 事件监听 ====='
     cat "$RUNTIME/service.log" 2>/dev/null || true
     echo
-    echo '===== mount.log｜主分區 / 掛載 / 手機儲存可見性 ====='
+    echo '===== mount.log｜主分区 / 挂载 / 手机储存可见性 ====='
     cat "$LOG" 2>/dev/null || true
     if [ -s "$RUNTIME/dcim_switch.log" ]; then
       echo
-      echo '===== dcim_switch.log｜舊版相容日誌 ====='
+      echo '===== dcim_switch.log｜旧版相容日志 ====='
       cat "$RUNTIME/dcim_switch.log" 2>/dev/null || true
     fi
     if [ -s "$RUNTIME/watchers.stderr.log" ]; then
       echo
-      echo '===== watchers.stderr.log｜事件監聽程序錯誤 ====='
+      echo '===== watchers.stderr.log｜事件监听程序错误 ====='
       cat "$RUNTIME/watchers.stderr.log" 2>/dev/null || true
     fi
     ;;
   config_path) printf '%s\n' "$CONF" ;;
   config_info)
-    echo "目前生效設定：$CONF"
-    echo "模組內建範例：$EXAMPLE_CONF"
-    echo "模組預設模板：$DEFAULT_CONF"
-    echo "注意：confwatch 只監聽目前生效設定；修改模組目錄內的範例不會即時生效。"
+    echo "目前生效设定：$CONF"
+    echo "模组内建范例：$EXAMPLE_CONF"
+    echo "模组预设模板：$DEFAULT_CONF"
+    echo "注意：confwatch 只监听目前生效设定；修改模组目录内的范例不会即时生效。"
     ;;
   backup_config)
     mkdir -p "$DATA_DIR/backups" 2>/dev/null || exit 1
     _dst="$DATA_DIR/backups/mount.conf.manual.$(date +%Y%m%d%H%M%S 2>/dev/null || echo now)"
     cp -f "$CONF" "$_dst" 2>/dev/null || exit 1
     chmod 0600 "$_dst" 2>/dev/null || true
-    echo "已備份目前生效設定：$_dst"
+    echo "已备份目前生效设定：$_dst"
     ;;
   import_default|restore_default)
     mkdir -p "$DATA_DIR/backups" 2>/dev/null || exit 1
@@ -132,11 +132,11 @@ case "$cmd" in
       _dst="$DATA_DIR/backups/mount.conf.before_default.$(date +%Y%m%d%H%M%S 2>/dev/null || echo now)"
       cp -f "$CONF" "$_dst" 2>/dev/null || exit 1
       chmod 0600 "$_dst" 2>/dev/null || true
-      echo "已備份原 live 設定：$_dst"
+      echo "已备份原 live 设定：$_dst"
     fi
     cp -f "$DEFAULT_CONF" "$CONF" 2>/dev/null || exit 1
     chmod 0600 "$CONF" 2>/dev/null || true
-    echo "已匯入模組預設設定到 live：$CONF"
+    echo "已汇入模组预设设定到 live：$CONF"
     apply_reload import_default
     _rc=$?
     refresh_card >/dev/null 2>&1 || true
@@ -144,18 +144,18 @@ case "$cmd" in
     ;;
   stop_watchers)
     sh "$MODDIR/watchers.sh" stop || exit $?
-    echo "事件監聽器已停止"
+    echo "事件监听器已停止"
     ;;
   start_watchers)
     sh "$MODDIR/watchers.sh" start manual || exit $?
     sh "$MODDIR/service.sh" --recover-unlocked manual_start || exit $?
-    echo "事件監聽器已確認啟動，已檢查解鎖後掛載"
+    echo "事件监听器已确认启动，已检查解锁后挂载"
     ;;
   restart_watchers|restart_service)
     sh "$MODDIR/watchers.sh" stop || exit $?
     sh "$MODDIR/watchers.sh" start manual || exit $?
     sh "$MODDIR/service.sh" --recover-unlocked manual_restart || exit $?
-    echo "事件監聽器已確認重啟，已檢查解鎖後掛載"
+    echo "事件监听器已确认重启，已检查解锁后挂载"
     ;;
   unmount_user) [ $# -ge 2 ] || exit 2; unmount_user_active "$2" ;;
   unmount_all) lock_acquire || exit 4; trap 'lock_release' EXIT INT TERM; unmount_active_all; lock_release; trap - EXIT INT TERM ;;

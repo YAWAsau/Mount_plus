@@ -54,9 +54,9 @@ mkdir -p "$RUNTIME" "$PARSED" 2>/dev/null
 DELIM='|'
 
 now() { date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || date; }
-logi() { printf '%s [資訊] %s\n' "$(now)" "$*" >> "$LOG" 2>/dev/null; }
+logi() { printf '%s [资讯] %s\n' "$(now)" "$*" >> "$LOG" 2>/dev/null; }
 logw() { printf '%s [警告] %s\n' "$(now)" "$*" >> "$LOG" 2>/dev/null; }
-loge() { printf '%s [錯誤] %s\n' "$(now)" "$*" >> "$LOG" 2>/dev/null; }
+loge() { printf '%s [错误] %s\n' "$(now)" "$*" >> "$LOG" 2>/dev/null; }
 
 DEX_CLASSES="$MODDIR/bin/classes.dex"
 DEX_NOTIFY_CLASS="${YAWASAU_NOTIFY_CLASS:-com.xayah.dex.NotificationUtil}"
@@ -211,7 +211,7 @@ mount_removed_names_compact() {
 notify_boot_wait_unlock_once() {
   _nbwu_marker=/dev/.yawasau_notify_boot_wait_unlock_v170
   [ -e "$_nbwu_marker" ] && return 0
-  if notify_post "等待解鎖後開始掛載" "Android 開機後需要使用者解鎖，內置儲存解密完成後才會開始掛載" "boot_wait_unlock"; then
+  if notify_post "等待解锁后开始挂载" "Android 开机后需要使用者解锁，内置储存解密完成后才会开始挂载" "boot_wait_unlock"; then
     : > "$_nbwu_marker" 2>/dev/null || true
   fi
 }
@@ -220,7 +220,7 @@ notify_unlock_start_once() {
   _nus_user=${1:-0}
   _nus_marker="/dev/.yawasau_notify_unlock_start_${_nus_user}_v170"
   [ -e "$_nus_marker" ] && return 0
-  if notify_post "檢測到 User $_nus_user 解鎖" "開始掛載 User $_nus_user 的儲存映射" "unlock_start_user_${_nus_user}"; then
+  if notify_post "检测到 User $_nus_user 解锁" "开始挂载 User $_nus_user 的储存映射" "unlock_start_user_${_nus_user}"; then
     : > "$_nus_marker" 2>/dev/null || true
   fi
 }
@@ -229,7 +229,7 @@ notify_mount_summary() {
   _nms_reason=${1:-mount}
   case "$_nms_reason" in
     profile_change|duplicate_profile_change|duplicate_config_event)
-      logi "通知略過：Profile/duplicate 不發一般掛載摘要｜reason=$_nms_reason"
+      logi "通知略过：Profile/duplicate 不发一般挂载摘要｜reason=$_nms_reason"
       return 0
       ;;
   esac
@@ -247,15 +247,15 @@ notify_mount_summary() {
   _nms_tag="mount_summary_$(notify_tag_safe "$_nms_reason")"
   if [ "$_nms_have" -ge "$_nms_want" ]; then
     _nms_names=$(mount_active_names_compact)
-    _nms_title="掛載完成：$_nms_have/$_nms_want"
-    _nms_text="全部掛載點已完成"
+    _nms_title="挂载完成：$_nms_have/$_nms_want"
+    _nms_text="全部挂载点已完成"
     [ -n "$_nms_names" ] && _nms_text="$_nms_names"
     notify_post "$_nms_title" "$_nms_text" "$_nms_tag"
   else
     _nms_missing=$(mount_missing_names_compact)
-    _nms_title="掛載不完全：$_nms_have/$_nms_want"
-    _nms_text="有掛載點未完成"
-    [ -n "$_nms_missing" ] && _nms_text="異常：$_nms_missing 掛載異常"
+    _nms_title="挂载不完全：$_nms_have/$_nms_want"
+    _nms_text="有挂载点未完成"
+    [ -n "$_nms_missing" ] && _nms_text="异常：$_nms_missing 挂载异常"
     notify_post "$_nms_title" "$_nms_text" "${_nms_tag}_incomplete"
   fi
 }
@@ -296,14 +296,14 @@ config_error_oneline() {
   _ce_saved_parsed=$PARSED; _ce_saved_log=$LOG
   _ce_log="$RUNTIME/config_error_notify.$$.log"; _ce_parsed="$RUNTIME/config_error_notify.$$.parsed"; _ce_snap="$RUNTIME/config_error_notify.$$.conf"
   rm -rf "$_ce_parsed" 2>/dev/null; rm -f "$_ce_log" "$_ce_snap" 2>/dev/null
-  cp -f "$CONF" "$_ce_snap" 2>/dev/null || { echo "無法讀取 mount.conf"; return 0; }
+  cp -f "$CONF" "$_ce_snap" 2>/dev/null || { echo "无法读取 mount.conf"; return 0; }
   : > "$_ce_log" 2>/dev/null || true
   LOG=$_ce_log
   parse_config "$_ce_snap" "$_ce_parsed" >/dev/null 2>&1
-  _ce_msg=$(grep -m1 '\[錯誤\]' "$_ce_log" 2>/dev/null | sed 's/^.*\[錯誤\] //' | head -n1)
+  _ce_msg=$(grep -m1 '\[错误\]' "$_ce_log" 2>/dev/null | sed 's/^.*\[错误\] //' | head -n1)
   LOG=$_ce_saved_log; PARSED=$_ce_saved_parsed
   rm -rf "$_ce_parsed" 2>/dev/null; rm -f "$_ce_log" "$_ce_snap" 2>/dev/null
-  [ -n "$_ce_msg" ] && echo "$_ce_msg" || echo "語法/欄位驗證未通過"
+  [ -n "$_ce_msg" ] && echo "$_ce_msg" || echo "语法/栏位验证未通过"
 }
 
 notify_config_failed() {
@@ -311,8 +311,8 @@ notify_config_failed() {
   _ncf_msg=$(config_error_oneline)
   _ncf_line=$(printf '%s
 ' "$_ncf_msg" | sed -n 's/.*第 \([0-9][0-9]*\) 行.*/第\1行/p' | head -n1)
-  _ncf_title='mount.conf 有問題'
-  [ -n "$_ncf_line" ] && _ncf_title="mount.conf 有問題：$_ncf_line"
+  _ncf_title='mount.conf 有问题'
+  [ -n "$_ncf_line" ] && _ncf_title="mount.conf 有问题：$_ncf_line"
   notify_post "$_ncf_title" "$_ncf_msg｜rc=$_ncf_rc" "config_failed"
 }
 
@@ -321,7 +321,7 @@ notify_config_apply_result() {
   _ncar_reason=${2:-config_event}
   case "$_ncar_reason" in
     profile_change|duplicate_*)
-      logi "通知略過：Profile/duplicate 不發 config 套用結果｜reason=$_ncar_reason"
+      logi "通知略过：Profile/duplicate 不发 config 套用结果｜reason=$_ncar_reason"
       return 0
       ;;
   esac
@@ -329,7 +329,7 @@ notify_config_apply_result() {
   _ncar_state_hash=$(config_state_value HASH 2>/dev/null)
   case "$_ncar_state_reason" in
     profile_change|duplicate_*)
-      logi "通知略過：目前 config.state=$_ncar_state_reason，不發 config 套用結果｜reason=$_ncar_reason｜hash=$_ncar_state_hash"
+      logi "通知略过：目前 config.state=$_ncar_state_reason，不发 config 套用结果｜reason=$_ncar_reason｜hash=$_ncar_state_hash"
       return 0
       ;;
   esac
@@ -342,25 +342,25 @@ notify_config_apply_result() {
   _ncar_names=$(mount_active_names_compact)
   if [ "$_ncar_want" -gt 0 ] && [ "$_ncar_have" -lt "$_ncar_want" ]; then
     _ncar_missing=$(mount_missing_names_compact)
-    _ncar_title="mount.conf 掛載不完全：$_ncar_have/$_ncar_want"
-    _ncar_text="有掛載點未完成"
-    [ -n "$_ncar_missing" ] && _ncar_text="異常：$_ncar_missing 掛載異常"
+    _ncar_title="mount.conf 挂载不完全：$_ncar_have/$_ncar_want"
+    _ncar_text="有挂载点未完成"
+    [ -n "$_ncar_missing" ] && _ncar_text="异常：$_ncar_missing 挂载异常"
     notify_post "$_ncar_title" "$_ncar_text" "config_reload_incomplete"
     return $?
   fi
 
   if [ -n "$_ncar_added" ]; then
-    _ncar_title="新增掛載成功：$_ncar_added"
+    _ncar_title="新增挂载成功：$_ncar_added"
   elif [ -n "$_ncar_removed" ]; then
-    _ncar_title="移除掛載成功：$_ncar_removed"
+    _ncar_title="移除挂载成功：$_ncar_removed"
   elif [ "$_ncar_want" -gt 0 ]; then
     _ncar_title="mount.conf 更改成功：$_ncar_have/$_ncar_want"
   else
     _ncar_title='mount.conf 更改成功'
   fi
 
-  _ncar_text='設定已重新套用'
-  [ "$_ncar_want" -gt 0 ] && _ncar_text="掛載完成：$_ncar_have/$_ncar_want"
+  _ncar_text='设定已重新套用'
+  [ "$_ncar_want" -gt 0 ] && _ncar_text="挂载完成：$_ncar_have/$_ncar_want"
   [ -n "$_ncar_names" ] && _ncar_text="$_ncar_text｜$_ncar_names"
   [ -n "$_ncar_removed" ] && _ncar_text="$_ncar_text｜已移除：$_ncar_removed"
 
@@ -370,7 +370,7 @@ notify_config_apply_result() {
   # in the text too, because the Dex recent/history file records text only.
   if [ -n "$_ncar_removed" ] && [ -z "$_ncar_added" ]; then
     _ncar_stamp=$(date +%s 2>/dev/null || echo $$)
-    _ncar_text="移除掛載成功：$_ncar_removed｜$_ncar_text"
+    _ncar_text="移除挂载成功：$_ncar_removed｜$_ncar_text"
     notify_post "$_ncar_title" "$_ncar_text" "config_removed_${_ncar_stamp}_$$"
     return $?
   fi
@@ -491,7 +491,7 @@ refresh_stale_source_mount_if_needed() {
   if row_source_needs_refresh "$_rssm_u" "$_rssm_s" "$_rssm_l" "$_rssm_pol"; then
     _rssm_cur=$(source_sig "$_rssm_s" 2>/dev/null || true)
     _rssm_prev=$(active_source_sig_lookup "$_rssm_u" "$_rssm_l" "$_rssm_s" "$_rssm_pol" 2>/dev/null || true)
-    logw "來源目錄 inode 已變更或缺少基準，強制重建掛載｜名稱=$_rssm_n｜User=$_rssm_u｜來源=$_rssm_s｜目標=$_rssm_t｜policy=$_rssm_pol｜old=${_rssm_prev:-none}｜new=${_rssm_cur:-unknown}｜mode=native-source-refresh"
+    logw "来源目录 inode 已变更或缺少基准，强制重建挂载｜名称=$_rssm_n｜User=$_rssm_u｜来源=$_rssm_s｜目标=$_rssm_t｜policy=$_rssm_pol｜old=${_rssm_prev:-none}｜new=${_rssm_cur:-unknown}｜mode=native-source-refresh"
 
     _rssm_gen=$(cat "$NS_BG_GEN" 2>/dev/null)
     [ -n "$_rssm_gen" ] || _rssm_gen="source_refresh.$$"
@@ -507,7 +507,7 @@ refresh_stale_source_mount_if_needed() {
     fi
     _rssm_rc=$?
     rm -f "$_rssm_rows" 2>/dev/null || true
-    logw "native source-refresh 未完成，回退 core-only shell 修復｜名稱=$_rssm_n｜rc=$_rssm_rc"
+    logw "native source-refresh 未完成，回退 core-only shell 修复｜名称=$_rssm_n｜rc=$_rssm_rc"
 
     # Compatibility fallback: only used when an older mounttx is installed or
     # native refresh fails.  The intended v1.4.86 path is mounttx source-refresh.
@@ -557,17 +557,17 @@ migrate_config_schema() {
   if [ "$_stock" -eq 1 ] && [ -f "$DEFAULT_CONF" ]; then
     cp -f "$DEFAULT_CONF" "$_tmp" 2>/dev/null || return 1
     [ "$_profile" = work ] && sed -i 's/^profile=camera|daily$/profile=camera|work/' "$_tmp" 2>/dev/null || true
-    logi "偵測到未自訂的 v1.2.0 預設設定，已升級為 v1.2.2 中文設定｜備份=$_bak"
+    logi "侦测到未自订的 v1.2.0 预设设定，已升级为 v1.2.2 中文设定｜备份=$_bak"
   else
     # Customized configs are never replaced. Remove only keys that v1.2.1+ no longer accepts.
     awk '
       /^# YAWAsau Mount v1\.2\.0 default configuration$/ {
-        print "# YAWAsau Mount v1.2.2 已遷移設定（保留自訂項目）"
+        print "# YAWAsau Mount v1.2.2 已迁移设定（保留自订项目）"
         next
       }
       !/^device=/ && !/^fallback=/ {print}
     ' "$CONF" > "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
-    logi "已遷移既有自訂 mount.conf：移除 device=/fallback=，其餘設定保留｜備份=$_bak"
+    logi "已迁移既有自订 mount.conf：移除 device=/fallback=，其余设定保留｜备份=$_bak"
   fi
 
   chmod 0600 "$_tmp" 2>/dev/null || true
@@ -591,12 +591,12 @@ seed_config() {
       [ "$_old" = WORK ] && sed -i 's/^profile=camera|daily$/profile=camera|work/' "$CONF" 2>/dev/null || true
     fi
     chmod 0600 "$CONF" 2>/dev/null || true
-    logi "已建立預設 mount.conf｜live=$CONF｜template=$DEFAULT_CONF"
+    logi "已建立预设 mount.conf｜live=$CONF｜template=$DEFAULT_CONF"
   else
     # v1.4.44: hard preserve. Flashing/upgrading must never replace or auto-upgrade
     # the user's persistent live config. Defaults/templates live only in the module.
     # Manual reset remains available through control.sh import_default.
-    logi "使用既有 live mount.conf，刷入/啟動不覆蓋、不自動升級｜live=$CONF｜template=$DEFAULT_CONF"
+    logi "使用既有 live mount.conf，刷入/启动不覆盖、不自动升级｜live=$CONF｜template=$DEFAULT_CONF"
   fi
   chmod 0600 "$CONF" 2>/dev/null || true
   return 0
@@ -707,7 +707,7 @@ normalize_target() {
 }
 parse_config() {
   _cfg=${1:-$CONF}; _out=${2:-$PARSED}
-  [ -f "$_cfg" ] || { loge "設定檔不存在｜$_cfg"; return 2; }
+  [ -f "$_cfg" ] || { loge "设定档不存在｜$_cfg"; return 2; }
   _tmp="$_out.tmp.$$"; rm -rf "$_tmp" 2>/dev/null; mkdir -p "$_tmp" || return 2
   _partition=''; _mp=''; _fs=auto; _vgq=auto
   # First pass: collect global keys before parsing mount rows. This lets source
@@ -731,21 +731,21 @@ parse_config() {
       partition=*|mount_point=*|fs=*|vendor_gallery_quiesce=*) ;;
       dir=*)
         # mksh treats an unquoted | in a trim pattern as alternation.
-        _dv=${_line#dir=}; _dp=${_dv%%'|'*}; [ "$_dp" != "$_dv" ] || { loge "mount.conf 第 $_lineno 行 dir 格式錯誤"; _err=1; continue; }
-        _dpol=${_dv#*'|'}; _dp_norm=$(normalize_source "$_mp" "$_dp") || { loge "mount.conf 第 $_lineno 行 dir 路徑無效/含 traversal"; _err=1; continue; }
-        case "$_dpol" in preserve|media_rw) ;; *) loge "mount.conf 第 $_lineno 行 dir policy 無效"; _err=1; continue;; esac
+        _dv=${_line#dir=}; _dp=${_dv%%'|'*}; [ "$_dp" != "$_dv" ] || { loge "mount.conf 第 $_lineno 行 dir 格式错误"; _err=1; continue; }
+        _dpol=${_dv#*'|'}; _dp_norm=$(normalize_source "$_mp" "$_dp") || { loge "mount.conf 第 $_lineno 行 dir 路径无效/含 traversal"; _err=1; continue; }
+        case "$_dpol" in preserve|media_rw) ;; *) loge "mount.conf 第 $_lineno 行 dir policy 无效"; _err=1; continue;; esac
         printf '%s|%s
 ' "$_dp_norm" "$_dpol" >> "$_tmp/dirs"
         ;;
       profile=*)
-        _v=${_line#profile=}; _g=${_v%%'|'*}; [ "$_g" != "$_v" ] || { loge "mount.conf 第 $_lineno 行 profile 格式錯誤"; _err=1; continue; }
-        _sel=${_v#*'|'}; valid_id "$_g" && valid_id "$_sel" || { loge "mount.conf 第 $_lineno 行 profile 名稱無效"; _err=1; continue; }
+        _v=${_line#profile=}; _g=${_v%%'|'*}; [ "$_g" != "$_v" ] || { loge "mount.conf 第 $_lineno 行 profile 格式错误"; _err=1; continue; }
+        _sel=${_v#*'|'}; valid_id "$_g" && valid_id "$_sel" || { loge "mount.conf 第 $_lineno 行 profile 名称无效"; _err=1; continue; }
         printf '%s|%s\n' "$_g" "$_sel" >> "$_tmp/profiles"
         ;;
       mount=*)
         _v=${_line#mount=}
         _nf=$(printf '%s\n' "$_v" | awk -F'|' '{print NF}')
-        case "$_nf" in 8|9|10) ;; *) loge "mount.conf 第 $_lineno 行 mount 必須有 8~10 個欄位"; _err=1; continue;; esac
+        case "$_nf" in 8|9|10) ;; *) loge "mount.conf 第 $_lineno 行 mount 必须有 8~10 个栏位"; _err=1; continue;; esac
         _name=$(printf '%s' "$_v" | cut -d'|' -f1)
         _user=$(printf '%s' "$_v" | cut -d'|' -f2)
         _src=$(printf '%s' "$_v" | cut -d'|' -f3)
@@ -759,41 +759,41 @@ parse_config() {
         [ -n "$_policy" ] || _policy=preserve
         [ -n "$_create" ] || _create=0
         [ -n "$_migrate" ] || _migrate=none
-        valid_user "$_user" || { loge "mount.conf 第 $_lineno 行 user 無效"; _err=1; continue; }
-        user_exists "$_user" || { loge "mount.conf 第 $_lineno 行 user=$_user 不存在，請先建立/啟用此 Android User 或改成正確 User ID"; _err=1; continue; }
+        valid_user "$_user" || { loge "mount.conf 第 $_lineno 行 user 无效"; _err=1; continue; }
+        user_exists "$_user" || { loge "mount.conf 第 $_lineno 行 user=$_user 不存在，请先建立/启用此 Android User 或改成正确 User ID"; _err=1; continue; }
         _src_in=$_src; _target_in=$_target
-        _src=$(normalize_source "$_mp" "$_src_in") || { loge "mount.conf 第 $_lineno 行來源路徑無效/含 traversal"; _err=1; continue; }
-        case "$_src_in" in /*) ;; *) logi "mount.conf 第 $_lineno 行 source 相對路徑已展開｜$_src_in → $_src" ;; esac
+        _src=$(normalize_source "$_mp" "$_src_in") || { loge "mount.conf 第 $_lineno 行来源路径无效/含 traversal"; _err=1; continue; }
+        case "$_src_in" in /*) ;; *) logi "mount.conf 第 $_lineno 行 source 相对路径已展开｜$_src_in → $_src" ;; esac
         case "$_enabled" in 0|1) ;; *) loge "mount.conf 第 $_lineno 行 enabled 只能是 0/1"; _err=1; continue;; esac
         case "$_policy" in preserve|media_rw|bindfs_shared) ;; *) loge "mount.conf 第 $_lineno 行 policy 只接受 preserve/media_rw/bindfs_shared"; _err=1; continue;; esac
         case "$_create" in 0|1) ;; *) loge "mount.conf 第 $_lineno 行 create 只接受 0/1"; _err=1; continue;; esac
         case "$_migrate" in none|once) ;; *) loge "mount.conf 第 $_lineno 行 migrate 只接受 none/once"; _err=1; continue;; esac
-        if [ -n "$_group" ] || [ -n "$_pval" ]; then valid_id "$_group" && valid_id "$_pval" || { loge "mount.conf 第 $_lineno 行 profile group/value 無效"; _err=1; continue; }; fi
-        _norm=$(normalize_target "$_user" "$_target_in") || { loge "mount.conf 第 $_lineno 行 target 路徑無效，或 target 的 User ID 與 user=$_user 不一致"; _err=1; continue; }
+        if [ -n "$_group" ] || [ -n "$_pval" ]; then valid_id "$_group" && valid_id "$_pval" || { loge "mount.conf 第 $_lineno 行 profile group/value 无效"; _err=1; continue; }; fi
+        _norm=$(normalize_target "$_user" "$_target_in") || { loge "mount.conf 第 $_lineno 行 target 路径无效，或 target 的 User ID 与 user=$_user 不一致"; _err=1; continue; }
         _lower=$(printf '%s
 ' "$_norm" | awk -F'|' '{print $1}'); _visible=$(printf '%s
 ' "$_norm" | awk -F'|' '{print $2}')
-        case "$_target_in" in /*) ;; *) logi "mount.conf 第 $_lineno 行 target 相對路徑已展開｜$_target_in → $_visible"; _target=$_visible ;; esac
-        [ "$(realp "$_src")" != "$(realp "$_lower")" ] || { loge "mount.conf 第 $_lineno 行來源與目標實體路徑不可相同"; _err=1; continue; }
+        case "$_target_in" in /*) ;; *) logi "mount.conf 第 $_lineno 行 target 相对路径已展开｜$_target_in → $_visible"; _target=$_visible ;; esac
+        [ "$(realp "$_src")" != "$(realp "$_lower")" ] || { loge "mount.conf 第 $_lineno 行来源与目标实体路径不可相同"; _err=1; continue; }
         if [ -z "$_name" ]; then _name=${_target%/}; _name=${_name##*/}; [ -n "$_name" ] || _name="$_target"; fi
-        case "$_name$_src$_target" in *'|'*) loge "mount.conf 第 $_lineno 行欄位不可包含 |"; _err=1; continue;; esac
+        case "$_name$_src$_target" in *'|'*) loge "mount.conf 第 $_lineno 行栏位不可包含 |"; _err=1; continue;; esac
         printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$_name" "$_user" "$_src" "$_target" "$_lower" "$_visible" "$_enabled" "$_group" "$_pval" "$_policy" "$_create" "$_migrate" >> "$_tmp/mounts.all"
         ;;
       *) loge "mount.conf 第 $_lineno 行不支援：$_line"; _err=1 ;;
     esac
   done < "$_cfg"
-  [ -n "$_partition" ] || { loge "partition 必填：請填分區名稱，例如 partition=YAWAsau"; _err=1; }
-  [ -z "$_partition" ] || valid_id "$_partition" || { loge "partition 名稱無效：只接受英數字、點、底線與連字號"; _err=1; }
-  [ -n "$_mp" ] || { loge "mount_point 必填：請填主分區掛載位置，例如 mount_point=/mnt/YAWAsau"; _err=1; }
-  [ -z "$_mp" ] || valid_safe_abs "$_mp" || { loge "mount_point 路徑無效/含 traversal"; _err=1; }
+  [ -n "$_partition" ] || { loge "partition 必填：请填分区名称，例如 partition=YAWAsau"; _err=1; }
+  [ -z "$_partition" ] || valid_id "$_partition" || { loge "partition 名称无效：只接受英数字、点、底线与连字号"; _err=1; }
+  [ -n "$_mp" ] || { loge "mount_point 必填：请填主分区挂载位置，例如 mount_point=/mnt/YAWAsau"; _err=1; }
+  [ -z "$_mp" ] || valid_safe_abs "$_mp" || { loge "mount_point 路径无效/含 traversal"; _err=1; }
   case "$_fs" in auto|f2fs|ext4) ;; *) loge "fs 只接受 auto/f2fs/ext4"; _err=1;; esac
   case "$_vgq" in auto|off|force) ;; *) loge "vendor_gallery_quiesce 只接受 auto/off/force"; _err=1;; esac
   # profile lines must be unique
-  if [ "$(cut -d'|' -f1 "$_tmp/profiles" 2>/dev/null | sort | uniq -d | head -n1)" ]; then loge "mount.conf 有重複 profile group"; _err=1; fi
+  if [ "$(cut -d'|' -f1 "$_tmp/profiles" 2>/dev/null | sort | uniq -d | head -n1)" ]; then loge "mount.conf 有重复 profile group"; _err=1; fi
   # Every enabled profile entry must have a selected group.
   while IFS='|' read -r _n _u _s _t _l _v _e _g _pv _pol _create _migrate; do
     [ "$_e" = 1 ] || continue
-    if [ -n "$_g" ]; then grep -Fq "$_g|" "$_tmp/profiles" || { loge "profile group=$_g 沒有 profile=... 選擇值"; _err=1; }; fi
+    if [ -n "$_g" ]; then grep -Fq "$_g|" "$_tmp/profiles" || { loge "profile group=$_g 没有 profile=... 选择值"; _err=1; }; fi
   done < "$_tmp/mounts.all"
   [ "$_err" = 0 ] || { rm -rf "$_tmp"; return 3; }
   printf 'partition=%s\nmount_point=%s\nfs=%s\nvendor_gallery_quiesce=%s\n' "$_partition" "$_mp" "$_fs" "$_vgq" > "$_tmp/global"
@@ -804,7 +804,7 @@ parse_config() {
     if [ -n "$_g" ]; then _sel=$(awk -F'|' -v g="$_g" '$1==g{print $2;exit}' "$_tmp/profiles"); [ "$_sel" = "$_pv" ] || continue; fi
     printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$_n" "$_u" "$_s" "$_t" "$_l" "$_v" "$_e" "$_g" "$_pv" "$_pol" "$_create" "$_migrate" >> "$_tmp/mounts.desired"
   done < "$_tmp/mounts.all"
-  if [ "$(cut -d'|' -f2,5 "$_tmp/mounts.desired" | sort | uniq -d | head -n1)" ]; then loge "目前 profile 選擇造成重複 target，拒絕套用"; rm -rf "$_tmp"; return 4; fi
+  if [ "$(cut -d'|' -f2,5 "$_tmp/mounts.desired" | sort | uniq -d | head -n1)" ]; then loge "目前 profile 选择造成重复 target，拒绝套用"; rm -rf "$_tmp"; return 4; fi
   # Publish the parsed snapshot file-by-file with atomic rename. Never move the
   # whole shared directory away: WebUI/status readers must not observe a brief
   # missing parsed/ directory while a profile transaction is committing.
@@ -822,7 +822,7 @@ parse_global_config() {
   # when later bind rows contain mistakes. This function deliberately ignores
   # mount/dir/profile rows and never treats their errors as root-mount blockers.
   _cfg=${1:-$CONF}; _out=${2:-$PARSED}
-  [ -f "$_cfg" ] || { loge "設定檔不存在｜$_cfg"; return 2; }
+  [ -f "$_cfg" ] || { loge "设定档不存在｜$_cfg"; return 2; }
   _tmp="$_out.global.tmp.$$"; rm -rf "$_tmp" 2>/dev/null; mkdir -p "$_tmp" || return 2
   _partition=''; _mp=''; _fs=auto; _vgq=auto
   while IFS= read -r _line || [ -n "$_line" ]; do
@@ -836,10 +836,10 @@ parse_global_config() {
     esac
   done < "$_cfg"
   _err=0
-  [ -n "$_partition" ] || { loge "partition 必填：請填分區名稱，例如 partition=YAWAsau"; _err=1; }
-  [ -z "$_partition" ] || valid_id "$_partition" || { loge "partition 名稱無效：只接受英數字、點、底線與連字號"; _err=1; }
-  [ -n "$_mp" ] || { loge "mount_point 必填：請填主分區掛載位置，例如 mount_point=/mnt/YAWAsau"; _err=1; }
-  [ -z "$_mp" ] || valid_safe_abs "$_mp" || { loge "mount_point 路徑無效/含 traversal"; _err=1; }
+  [ -n "$_partition" ] || { loge "partition 必填：请填分区名称，例如 partition=YAWAsau"; _err=1; }
+  [ -z "$_partition" ] || valid_id "$_partition" || { loge "partition 名称无效：只接受英数字、点、底线与连字号"; _err=1; }
+  [ -n "$_mp" ] || { loge "mount_point 必填：请填主分区挂载位置，例如 mount_point=/mnt/YAWAsau"; _err=1; }
+  [ -z "$_mp" ] || valid_safe_abs "$_mp" || { loge "mount_point 路径无效/含 traversal"; _err=1; }
   case "$_fs" in auto|f2fs|ext4) ;; *) loge "fs 只接受 auto/f2fs/ext4"; _err=1;; esac
   case "$_vgq" in auto|off|force) ;; *) loge "vendor_gallery_quiesce 只接受 auto/off/force"; _err=1;; esac
   [ "$_err" = 0 ] || { rm -rf "$_tmp"; return 3; }
@@ -884,83 +884,83 @@ validate_snapshot_make() {
 validate_line_hint() {
   _vlh_msg=$1
   case "$_vlh_msg" in
-    *'dir 格式錯誤'*)
-      echo '    建議：dir 格式必須是 dir=路徑|preserve 或 dir=路徑|media_rw。'
+    *'dir 格式错误'*)
+      echo '    建议：dir 格式必须是 dir=路径|preserve 或 dir=路径|media_rw。'
       ;;
-    *'dir 路徑無效'*|*'來源路徑無效'*)
-      echo '    建議：路徑不可包含 ..、| 或控制字元；source/dir 可用相對路徑，相對於 mount_point。'
+    *'dir 路径无效'*|*'来源路径无效'*)
+      echo '    建议：路径不可包含 ..、| 或控制字元；source/dir 可用相对路径，相对于 mount_point。'
       echo '    例：dir=DCIM/Camera|media_rw 或 mount=日常|0|DCIM|DCIM|1|camera|daily|media_rw|1|once'
       ;;
-    *'dir policy 無效'*)
-      echo '    建議：dir 權限策略只接受 preserve 或 media_rw。'
+    *'dir policy 无效'*)
+      echo '    建议：dir 权限策略只接受 preserve 或 media_rw。'
       ;;
-    *'profile 格式錯誤'*)
-      echo '    建議：profile 格式必須是 profile=群組|目前選項，例如 profile=camera|daily。'
+    *'profile 格式错误'*)
+      echo '    建议：profile 格式必须是 profile=群组|目前选项，例如 profile=camera|daily。'
       ;;
-    *'profile 名稱無效'*)
-      echo '    建議：profile 群組與選項只接受英數字、點、底線、連字號；例如 camera、daily、work。'
+    *'profile 名称无效'*)
+      echo '    建议：profile 群组与选项只接受英数字、点、底线、连字号；例如 camera、daily、work。'
       ;;
-    *'mount 必須有'*'欄位'*)
-      echo '    建議：mount 格式為 名稱|User|來源|目標|啟用|Profile群組|Profile選項|權限策略|自動建立|首次搬移。'
-      echo '    不使用 Profile 時中間兩欄要留空：mount=名稱|0|來源|目標|1|||media_rw|1|none'
+    *'mount 必须有'*'栏位'*)
+      echo '    建议：mount 格式为 名称|User|来源|目标|启用|Profile群组|Profile选项|权限策略|自动建立|首次搬移。'
+      echo '    不使用 Profile 时中间两栏要留空：mount=名称|0|来源|目标|1|||media_rw|1|none'
       ;;
-    *'user 無效'*)
-      echo '    建議：第 2 欄必須是數字 User ID，主使用者通常是 0。常見錯誤是少寫 |0|。'
+    *'user 无效'*)
+      echo '    建议：第 2 栏必须是数字 User ID，主使用者通常是 0。常见错误是少写 |0|。'
       echo '    例：mount=DCIM0|0|DCIM|DCIM|1|||media_rw|1|once'
       ;;
     *'user='*'不存在'*)
-      echo '    建議：這個 Android User 不存在。請先建立/啟用該使用者，或把第 2 欄改成 cmd user list 裡存在的 User ID。'
-      echo '    例：主使用者填 0；隱私空間/第二使用者請先確認實際 ID。'
+      echo '    建议：这个 Android User 不存在。请先建立/启用该使用者，或把第 2 栏改成 cmd user list 里存在的 User ID。'
+      echo '    例：主使用者填 0；隐私空间/第二使用者请先确认实际 ID。'
       ;;
     *'enabled 只能是 0/1'*)
-      echo '    建議：第 5 欄 enabled 只能填 1 或 0。'
+      echo '    建议：第 5 栏 enabled 只能填 1 或 0。'
       ;;
     *'policy 只接受'*)
-      echo '    建議：第 8 欄 policy 只接受 preserve、media_rw 或 bindfs_shared。bindfs_shared 適合跨 User 共享資料夾，不會遞迴改來源檔案權限。'
+      echo '    建议：第 8 栏 policy 只接受 preserve、media_rw 或 bindfs_shared。bindfs_shared 适合跨 User 共享资料夹，不会递回改来源档案权限。'
       ;;
     *'create 只接受 0/1'*)
-      echo '    建議：第 9 欄 create 只能填 1 或 0；1=來源不存在時建立，0=不建立。'
+      echo '    建议：第 9 栏 create 只能填 1 或 0；1=来源不存在时建立，0=不建立。'
       ;;
     *'migrate 只接受'*)
-      echo '    建議：第 10 欄 migrate 只接受 none 或 once。'
+      echo '    建议：第 10 栏 migrate 只接受 none 或 once。'
       ;;
-    *'profile group/value 無效'*)
-      echo '    建議：第 6/7 欄 Profile 群組與選項只接受英數字、點、底線、連字號；不切換就兩欄都留空。'
+    *'profile group/value 无效'*)
+      echo '    建议：第 6/7 栏 Profile 群组与选项只接受英数字、点、底线、连字号；不切换就两栏都留空。'
       ;;
-    *'target 路徑無效'*)
-      echo '    建議：target 建議用相對路徑，例如 虛擬分區 或 DCIM。'
-      echo '    若寫絕對路徑，只接受 /storage/emulated/<User>/... 或 /data/media/<User>/...，且 User 必須和第 2 欄一致。'
+    *'target 路径无效'*)
+      echo '    建议：target 建议用相对路径，例如 虚拟分区 或 DCIM。'
+      echo '    若写绝对路径，只接受 /storage/emulated/<User>/... 或 /data/media/<User>/...，且 User 必须和第 2 栏一致。'
       ;;
-    *'來源與目標實體路徑不可相同'*)
-      echo '    建議：source 不能指向 target 對應的 /data/media 實體目錄，避免自我 bind。'
+    *'来源与目标实体路径不可相同'*)
+      echo '    建议：source 不能指向 target 对应的 /data/media 实体目录，避免自我 bind。'
       ;;
     *'partition 必填'*)
-      echo '    建議：加入 partition=分區名稱，例如 partition=YAWAsau。'
+      echo '    建议：加入 partition=分区名称，例如 partition=YAWAsau。'
       ;;
-    *'partition 名稱無效'*)
-      echo '    建議：partition 只填 by-name 名稱，不要填 /dev/block/...；只接受英數字、點、底線、連字號。'
+    *'partition 名称无效'*)
+      echo '    建议：partition 只填 by-name 名称，不要填 /dev/block/...；只接受英数字、点、底线、连字号。'
       ;;
     *'mount_point 必填'*)
-      echo '    建議：加入 mount_point=/mnt/名稱，例如 mount_point=/mnt/YAWAsau。'
+      echo '    建议：加入 mount_point=/mnt/名称，例如 mount_point=/mnt/YAWAsau。'
       ;;
-    *'mount_point 路徑無效'*)
-      echo '    建議：mount_point 必須是絕對路徑，且不可包含 .. 或 |。'
+    *'mount_point 路径无效'*)
+      echo '    建议：mount_point 必须是绝对路径，且不可包含 .. 或 |。'
       ;;
     *'fs 只接受'*)
-      echo '    建議：fs 只能填 auto、f2fs 或 ext4。'
+      echo '    建议：fs 只能填 auto、f2fs 或 ext4。'
       ;;
-    *'重複 profile group'*)
-      echo '    建議：同一個 profile group 只能有一行 profile=。'
+    *'重复 profile group'*)
+      echo '    建议：同一个 profile group 只能有一行 profile=。'
       ;;
-    *'沒有 profile='*)
-      echo '    建議：有 mount row 使用這個 profile group，就必須有對應 profile=群組|選項。'
+    *'没有 profile='*)
+      echo '    建议：有 mount row 使用这个 profile group，就必须有对应 profile=群组|选项。'
       echo '    例：profile=camera|daily'
       ;;
-    *'重複 target'*)
-      echo '    建議：目前選中的掛載項不能有相同 User + 相同 target；Profile daily/work 只能同時選中一個。'
+    *'重复 target'*)
+      echo '    建议：目前选中的挂载项不能有相同 User + 相同 target；Profile daily/work 只能同时选中一个。'
       ;;
     *)
-      echo '    建議：依照上方原始行檢查欄位數、分隔符 |、User ID、路徑與 Profile。'
+      echo '    建议：依照上方原始行检查栏位数、分隔符 |、User ID、路径与 Profile。'
       ;;
   esac
 }
@@ -970,11 +970,11 @@ validate_error_report() {
   _ver_cfg=$2
   _ver_count=0
   while IFS= read -r _ver_line || [ -n "$_ver_line" ]; do
-    case "$_ver_line" in *'[錯誤]'*) ;; *) continue;; esac
+    case "$_ver_line" in *'[错误]'*) ;; *) continue;; esac
     _ver_count=$((_ver_count+1))
-    _ver_msg=$(printf '%s\n' "$_ver_line" | sed 's/^.*\[錯誤\] //')
+    _ver_msg=$(printf '%s\n' "$_ver_line" | sed 's/^.*\[错误\] //')
     _ver_no=$(printf '%s\n' "$_ver_msg" | sed -n 's/.*第 \([0-9][0-9]*\) 行.*/\1/p' | head -n1)
-    echo "  錯誤 $_ver_count：$_ver_msg"
+    echo "  错误 $_ver_count：$_ver_msg"
     if [ -n "$_ver_no" ]; then
       _ver_src=$(awk -v n="$_ver_no" 'NR==n{print;exit}' "$_ver_cfg" 2>/dev/null)
       [ -n "$_ver_src" ] && echo "    原始第 $_ver_no 行：$_ver_src"
@@ -982,7 +982,7 @@ validate_error_report() {
     validate_line_hint "$_ver_msg"
     echo
   done < "$_ver_log"
-  [ "$_ver_count" -gt 0 ] || echo '  沒有取得具體錯誤行，請查看完整日誌。'
+  [ "$_ver_count" -gt 0 ] || echo '  没有取得具体错误行，请查看完整日志。'
 }
 
 validate_warning_report() {
@@ -996,10 +996,10 @@ validate_warning_report() {
     END {
       for (i=1;i<=c;i++) {
         if (s[i] == "/data/local/tmp" && pol[i] == "media_rw") {
-          print "警告：" n[i] " 的 source=/data/local/tmp 但 policy=media_rw。建議改成 policy=preserve，避免改動 shell/root 暫存區權限。"
+          print "警告：" n[i] " 的 source=/data/local/tmp 但 policy=media_rw。建议改成 policy=preserve，避免改动 shell/root 暂存区权限。"
         }
         if (pol[i] == "bindfs_shared") {
-          print "提示：" n[i] " 使用 bindfs_shared。這會用 bindfs 靜態 FUSE 權限映射，不遞迴修改來源檔案；適合跨 User 共享資料夾。"
+          print "提示：" n[i] " 使用 bindfs_shared。这会用 bindfs 静态 FUSE 权限映射，不递回修改来源档案；适合跨 User 共享资料夹。"
         }
       }
       for (i=1;i<=c;i++) {
@@ -1008,7 +1008,7 @@ validate_warning_report() {
           if (u[i] != u[j]) continue
           prefix=t[i] "/"
           if (length(t[i]) > 1 && index(t[j], prefix) == 1) {
-            print "警告：" n[j] " 的 target 位於另一個掛載項「" n[i] "」裡面：" t[j] "。這是嵌套掛載，Android App/FUSE namespace 可見性不保證；建議改成頂層 target。"
+            print "警告：" n[j] " 的 target 位于另一个挂载项「" n[i] "」里面：" t[j] "。这是嵌套挂载，Android App/FUSE namespace 可见性不保证；建议改成顶层 target。"
           }
         }
       }
@@ -1032,22 +1032,22 @@ validate_config_report() {
   _vcr_global="$RUNTIME/validate.global.$$"; _vcr_parsed="$RUNTIME/validate.parsed.$$"; _vcr_log="$RUNTIME/validate.log.$$"; _vcr_snap="$RUNTIME/validate.conf.$$"
   rm -rf "$_vcr_global" "$_vcr_parsed" 2>/dev/null; rm -f "$_vcr_snap" 2>/dev/null; : > "$_vcr_log" 2>/dev/null
   LOG=$_vcr_log
-  echo "設定檢查：$_vcr_cfg"
-  echo "目前生效設定：$CONF"
-  echo "模組內建範例：$EXAMPLE_CONF"
-  echo "提示：confwatch 只監聽目前生效設定；修改模組目錄內的 mount.conf / mount.conf.example 不會即時生效。"
-  echo "提示：刷入新版時既有 live mount.conf 會保留；只有 live 檔不存在時才建立預設設定。"
+  echo "设定检查：$_vcr_cfg"
+  echo "目前生效设定：$CONF"
+  echo "模组内建范例：$EXAMPLE_CONF"
+  echo "提示：confwatch 只监听目前生效设定；修改模组目录内的 mount.conf / mount.conf.example 不会即时生效。"
+  echo "提示：刷入新版时既有 live mount.conf 会保留；只有 live 档不存在时才建立预设设定。"
   echo
 
   _vcr_hash=$(validate_snapshot_make "$_vcr_cfg" "$_vcr_snap" 2>/dev/null || true)
   if [ -z "$_vcr_hash" ]; then
-    echo "設定檔：錯誤"
-    echo "  無法建立穩定快照，可能正在被編輯器寫入。請儲存完成後再檢查。"
+    echo "设定档：错误"
+    echo "  无法建立稳定快照，可能正在被编辑器写入。请储存完成后再检查。"
     LOG=$_vcr_saved_log; PARSED=$_vcr_saved_parsed
     rm -rf "$_vcr_global" "$_vcr_parsed" 2>/dev/null; rm -f "$_vcr_log" "$_vcr_snap" 2>/dev/null
     return 3
   fi
-  echo "設定檔快照：OK"
+  echo "设定档快照：OK"
   echo "  hash=$_vcr_hash"
   echo
 
@@ -1058,7 +1058,7 @@ validate_config_report() {
     _vcr_part=$(cfg_get partition); _vcr_mp=$(cfg_get mount_point); _vcr_fs=$(cfg_get fs)
     _vcr_dev=$(resolve_device 2>/dev/null || true)
     _vcr_real=''; [ -n "$_vcr_dev" ] && _vcr_real=$(realp "$_vcr_dev")
-    echo "主分區：OK"
+    echo "主分区：OK"
     echo "  partition=$_vcr_part"
     echo "  block=${_vcr_dev:-找不到}"
     [ -n "$_vcr_real" ] && echo "  block_real=$_vcr_real"
@@ -1067,11 +1067,11 @@ validate_config_report() {
     if [ "$_vcr_mode" = dryrun ]; then
       if [ -n "$_vcr_dev" ]; then
         _vcr_dfs=$(detect_fs "$_vcr_dev" 2>/dev/null || true)
-        echo "  detect_fs=${_vcr_dfs:-無法辨識}"
+        echo "  detect_fs=${_vcr_dfs:-无法辨识}"
       fi
     fi
   else
-    echo "主分區：錯誤（global rc=$_vcr_grc）"
+    echo "主分区：错误（global rc=$_vcr_grc）"
   fi
   echo
 
@@ -1091,9 +1091,9 @@ validate_config_report() {
       echo "Profiles："
       while IFS='|' read -r _vcr_g _vcr_s; do [ -n "$_vcr_g" ] && echo "  $_vcr_g=$_vcr_s"; done < "$_vcr_parsed/profiles"
     else
-      echo "Profiles：未設定"
+      echo "Profiles：未设定"
     fi
-    echo "掛載項目："
+    echo "挂载项目："
     if [ -s "$_vcr_parsed/mounts.all" ]; then
       while IFS='|' read -r _vcr_n _vcr_u _vcr_s _vcr_t _vcr_l _vcr_v _vcr_e _vcr_g _vcr_pv _vcr_pol _vcr_create _vcr_migrate; do
         [ -n "$_vcr_n$_vcr_s$_vcr_t" ] || continue
@@ -1115,11 +1115,11 @@ validate_config_report() {
     fi
     validate_warning_report "$_vcr_parsed"
   else
-    echo "mount rows：錯誤（rc=$_vcr_rc）"
-    echo "錯誤明細："
+    echo "mount rows：错误（rc=$_vcr_rc）"
+    echo "错误明细："
     validate_error_report "$_vcr_log" "$_vcr_snap"
-    echo '解析資訊：'
-    grep '\[資訊\]\|\[警告\]' "$_vcr_log" 2>/dev/null | sed 's/^/  /' || true
+    echo '解析资讯：'
+    grep '\[资讯\]\|\[警告\]' "$_vcr_log" 2>/dev/null | sed 's/^/  /' || true
   fi
   LOG=$_vcr_saved_log; PARSED=$_vcr_saved_parsed
   rm -rf "$_vcr_global" "$_vcr_parsed" 2>/dev/null
@@ -1183,7 +1183,7 @@ resolve_partition_name() {
     if [ -z "$_rpn_first" ]; then
       _rpn_first="$_rpn_cand"; _rpn_first_real="$_rpn_real"
     elif [ "$_rpn_real" != "$_rpn_first_real" ]; then
-      loge "找到多個同名分區但指向不同裝置，拒絕猜測｜partition=$_rpn_part｜第一個=$_rpn_first_real｜另一個=$_rpn_real"
+      loge "找到多个同名分区但指向不同装置，拒绝猜测｜partition=$_rpn_part｜第一个=$_rpn_first_real｜另一个=$_rpn_real"
       return 2
     fi
   done
@@ -1238,10 +1238,10 @@ detect_fs() {
 
 global_preflight() {
   # Validate new global settings before tearing down the last known-good root.
-  _newdev=$(resolve_device) || { loge "新設定預檢失敗：找不到分區裝置"; return 20; }
+  _newdev=$(resolve_device) || { loge "新设定预检失败：找不到分区装置"; return 20; }
   _newmp=$(cfg_get mount_point)
   if [ -n "$_newdev" ]; then
-    _newfs=$(detect_fs "$_newdev") || { loge "新設定預檢失敗：只支援/可辨識 f2fs/ext4｜裝置=$_newdev"; return 21; }
+    _newfs=$(detect_fs "$_newdev") || { loge "新设定预检失败：只支援/可辨识 f2fs/ext4｜装置=$_newdev"; return 21; }
     if is_mounted "$_newmp"; then
       _cur=$(realp "$(mount_src "$_newmp")"); _want=$(realp "$_newdev"); _cfs=$(mount_fs "$_newmp")
       # Occupied by the desired root is fine. Occupied by the old configured root is
@@ -1255,29 +1255,29 @@ global_preflight() {
         _od1=''; [ -n "$_odev" ] && _od1=$(realp "$_odev")
         if [ "$_newmp" = "$_omp" ] && [ -n "$_od1" ] && [ "$_cur" = "$_od1" ]; then return 0; fi
       fi
-      loge "新設定預檢失敗：mount_point 已被未知來源占用｜$_newmp｜來源=$_cur｜fs=$_cfs"
+      loge "新设定预检失败：mount_point 已被未知来源占用｜$_newmp｜来源=$_cur｜fs=$_cfs"
       return 23
     fi
   fi
   return 0
 }
 mount_root_ensure() {
-  _dev=$(resolve_device) || { loge "找不到設定的分區裝置"; return 20; }
+  _dev=$(resolve_device) || { loge "找不到设定的分区装置"; return 20; }
   _mp=$(cfg_get mount_point)
-  _fs=$(detect_fs "$_dev") || { loge "只支援 f2fs/ext4，無法辨識 $_dev"; return 21; }
+  _fs=$(detect_fs "$_dev") || { loge "只支援 f2fs/ext4，无法辨识 $_dev"; return 21; }
   mkdir -p "$_mp" 2>/dev/null || return 22
   if is_mounted "$_mp"; then
     _cur=$(realp "$(mount_src "$_mp")"); _want=$(realp "$_dev"); _cfs=$(mount_fs "$_mp")
-    [ "$_cur" = "$_want" ] && [ "$_cfs" = "$_fs" ] && { logi "主分區已掛載｜裝置=$_dev｜fs=$_fs｜掛載點=$_mp"; return 0; }
-    loge "mount_point 已被其他來源占用｜$_mp｜來源=$_cur｜fs=$_cfs"; return 23
+    [ "$_cur" = "$_want" ] && [ "$_cfs" = "$_fs" ] && { logi "主分区已挂载｜装置=$_dev｜fs=$_fs｜挂载点=$_mp"; return 0; }
+    loge "mount_point 已被其他来源占用｜$_mp｜来源=$_cur｜fs=$_cfs"; return 23
   fi
   ns1 mount -t "$_fs" -o rw,noatime "$_dev" "$_mp" 2>/dev/null || {
     # concurrent mount is okay only if revalidation matches
     _cur=$(realp "$(mount_src "$_mp")"); _want=$(realp "$_dev"); _cfs=$(mount_fs "$_mp")
-    [ "$_cur" = "$_want" ] && [ "$_cfs" = "$_fs" ] && { logi "偵測到併發掛載，驗證後正常｜$_mp"; return 0; }
-    loge "主分區掛載失敗｜裝置=$_dev｜fs=$_fs｜掛載點=$_mp"; return 24
+    [ "$_cur" = "$_want" ] && [ "$_cfs" = "$_fs" ] && { logi "侦测到并发挂载，验证后正常｜$_mp"; return 0; }
+    loge "主分区挂载失败｜装置=$_dev｜fs=$_fs｜挂载点=$_mp"; return 24
   }
-  logi "主分區掛載成功｜裝置=$_dev｜fs=$_fs｜掛載點=$_mp"
+  logi "主分区挂载成功｜装置=$_dev｜fs=$_fs｜挂载点=$_mp"
   return 0
 }
 
@@ -1355,7 +1355,7 @@ vendor_gallery_force_stop_pkg() {
     _vgfs_after2=$(vendor_gallery_pids_for_pkg "$_vgfs_u" "$_vgfs_pkg" | tr '\n' ' ')
     for _vgfs_pid in $_vgfs_after2; do kill -KILL "$_vgfs_pid" 2>/dev/null || true; done
   fi
-  logi "廠商相簿靜默處理｜User=$_vgfs_u｜package=$_vgfs_pkg｜reason=$_vgfs_reason｜pids_before=${_vgfs_before:-none}"
+  logi "厂商相簿静默处理｜User=$_vgfs_u｜package=$_vgfs_pkg｜reason=$_vgfs_reason｜pids_before=${_vgfs_before:-none}"
   return 0
 }
 
@@ -1392,7 +1392,7 @@ vendor_gallery_quiesce_profile_before() {
     done
   done
   if [ "$_vgq_any" -gt 0 ]; then
-    logi "廠商相簿相容模式已處理｜mode=$_vgq_mode｜users=$_vgq_users｜profile=$_vgq_group｜$_vgq_from → $_vgq_to｜packages=$_vgq_any"
+    logi "厂商相簿相容模式已处理｜mode=$_vgq_mode｜users=$_vgq_users｜profile=$_vgq_group｜$_vgq_from → $_vgq_to｜packages=$_vgq_any"
   fi
   return 0
 }
@@ -1434,7 +1434,7 @@ media_cache_refresh() {
   _cf=$(media_cache_file "$_u"); _tmp="$_cf.tmp.$$"
   { printf 'USER=%s\nPACKAGE=%s\nUID=%s\nPID=%s\nNS=%s\n' "$_u" "$_pkg" "$_uid" "$_pid" "$_ns"; } > "$_tmp" || return 1
   chmod 0600 "$_tmp" 2>/dev/null; mv -f "$_tmp" "$_cf" || return 1
-  logi "已鎖定 MediaProvider namespace｜User=$_u｜package=$_pkg｜pid=$_pid｜ns=$_ns"
+  logi "已锁定 MediaProvider namespace｜User=$_u｜package=$_pkg｜pid=$_pid｜ns=$_ns"
   printf '%s\n' "$_pid"
 }
 
@@ -1468,7 +1468,7 @@ target_mkdir_or_defer() {
   ns1 mkdir -p "$_tmod_l" 2>/dev/null && return 0
   mkdir -p "$_tmod_l" 2>/dev/null && return 0
   if [ -n "$_tmod_v" ]; then
-    logi "User 儲存目標尚未可建立，延後掛載｜階段=$_tmod_phase｜名稱=$_tmod_n｜User=$_tmod_u｜目標=$_tmod_l"
+    logi "User 储存目标尚未可建立，延后挂载｜阶段=$_tmod_phase｜名称=$_tmod_n｜User=$_tmod_u｜目标=$_tmod_l"
     return 75
   fi
   return 1
@@ -1497,16 +1497,16 @@ restore_visible_target_after_unmount() {
   _rvtu_u=$1; _rvtu_l=$2; _rvtu_v=$3; _rvtu_n=$4; _rvtu_reason=${5:-config_event}
   case "$_rvtu_u" in ''|*[!0-9]*) return 0;; esac
   [ -n "$_rvtu_v" ] || return 0
-  user_storage_available "$_rvtu_u" || { logi "卸載後目標整理延後：User 尚未解鎖｜名稱=$_rvtu_n｜User=$_rvtu_u"; return 0; }
+  user_storage_available "$_rvtu_u" || { logi "卸载后目标整理延后：User 尚未解锁｜名称=$_rvtu_n｜User=$_rvtu_u"; return 0; }
   _rvtu_lower=$(visible_target_lower_path "$_rvtu_u" "$_rvtu_l" "$_rvtu_v" 2>/dev/null || true)
   [ -n "$_rvtu_lower" ] || return 0
-  ns1 mkdir -p "$_rvtu_lower" 2>/dev/null || mkdir -p "$_rvtu_lower" 2>/dev/null || { logw "卸載後目標整理失敗：無法建立普通目錄｜名稱=$_rvtu_n｜目標=$_rvtu_lower"; return 0; }
-  chown media_rw:media_rw "$_rvtu_lower" 2>/dev/null || ns1 chown media_rw:media_rw "$_rvtu_lower" 2>/dev/null || logw "卸載後目標 chown media_rw 失敗｜名稱=$_rvtu_n｜目標=$_rvtu_lower"
-  chmod 2770 "$_rvtu_lower" 2>/dev/null || ns1 chmod 2770 "$_rvtu_lower" 2>/dev/null || logw "卸載後目標 chmod 2770 失敗｜名稱=$_rvtu_n｜目標=$_rvtu_lower"
+  ns1 mkdir -p "$_rvtu_lower" 2>/dev/null || mkdir -p "$_rvtu_lower" 2>/dev/null || { logw "卸载后目标整理失败：无法建立普通目录｜名称=$_rvtu_n｜目标=$_rvtu_lower"; return 0; }
+  chown media_rw:media_rw "$_rvtu_lower" 2>/dev/null || ns1 chown media_rw:media_rw "$_rvtu_lower" 2>/dev/null || logw "卸载后目标 chown media_rw 失败｜名称=$_rvtu_n｜目标=$_rvtu_lower"
+  chmod 2770 "$_rvtu_lower" 2>/dev/null || ns1 chmod 2770 "$_rvtu_lower" 2>/dev/null || logw "卸载后目标 chmod 2770 失败｜名称=$_rvtu_n｜目标=$_rvtu_lower"
   if command -v chcon >/dev/null 2>&1; then
     chcon u:object_r:media_rw_data_file:s0 "$_rvtu_lower" 2>/dev/null || ns1 chcon u:object_r:media_rw_data_file:s0 "$_rvtu_lower" 2>/dev/null || true
   fi
-  logi "已恢復卸載後目標為普通媒體目錄｜名稱=$_rvtu_n｜User=$_rvtu_u｜目標=$_rvtu_lower"
+  logi "已恢复卸载后目标为普通媒体目录｜名称=$_rvtu_n｜User=$_rvtu_u｜目标=$_rvtu_lower"
   media_scan_schedule_visible "$_rvtu_u" "$_rvtu_v" "unmount_restore_$_rvtu_reason" >/dev/null 2>&1 || true
   return 0
 }
@@ -1675,11 +1675,11 @@ mount_active_background_sync() {
     sleep 0.2
     ns_background_generation_current "$_mabs_gen" || exit 0
     _mabs_scope=$(reason_user_scope "$_mabs_reason" 2>/dev/null || true)
-    logi "背景同步 App namespace 啟動｜原因=$_mabs_reason｜scope=${_mabs_scope:-all}｜generation=$_mabs_gen"
+    logi "背景同步 App namespace 启动｜原因=$_mabs_reason｜scope=${_mabs_scope:-all}｜generation=$_mabs_gen"
     while IFS='|' read -r _mabs_n _mabs_u _mabs_s _mabs_t _mabs_l _mabs_v _mabs_e _mabs_g _mabs_pv _mabs_pol _mabs_create _mabs_migrate; do
       [ -n "$_mabs_l" ] || continue
       row_scope_match "$_mabs_scope" "$_mabs_u" || continue
-      ns_background_generation_current "$_mabs_gen" || { logi "背景同步 App namespace 已取消：generation 過期｜原因=$_mabs_reason"; exit 0; }
+      ns_background_generation_current "$_mabs_gen" || { logi "背景同步 App namespace 已取消：generation 过期｜原因=$_mabs_reason"; exit 0; }
       mount_app_ns_only "$_mabs_gen" "$_mabs_u" "$_mabs_s" "$_mabs_l" "$_mabs_pol" >/dev/null 2>&1 || true
     done < "$_mabs_tmp"
     ns_background_generation_current "$_mabs_gen" && logi "背景同步 App namespace 完成｜原因=$_mabs_reason｜scope=${_mabs_scope:-all}｜generation=$_mabs_gen"
@@ -1690,14 +1690,14 @@ mount_active_background_sync() {
 policy_apply() (
   _src=$1; _pol=$2
   _uid=$(stat -c '%u' "$_src" 2>/dev/null); _gid=$(stat -c '%g' "$_src" 2>/dev/null); _mode=$(stat -c '%a' "$_src" 2>/dev/null); _ctx=$(ls -Zd "$_src" 2>/dev/null | awk '{print $1}')
-  logi "來源權限稽核｜$_src｜uid=$_uid gid=$_gid mode=$_mode context=${_ctx:-unknown}｜policy=$_pol"
+  logi "来源权限稽核｜$_src｜uid=$_uid gid=$_gid mode=$_mode context=${_ctx:-unknown}｜policy=$_pol"
   [ "$_pol" = media_rw ] || return 0
   _pa_bb=''
   for _pa_candidate in /data/adb/ksu/bin/busybox /data/adb/magisk/busybox "$(command -v busybox 2>/dev/null)"; do
     [ -x "$_pa_candidate" ] && { _pa_bb=$_pa_candidate; break; }
   done
   [ -n "$_pa_bb" ] && [ -f "$MODDIR/permissions.sh" ] || {
-    loge "media_rw 遞迴權限修復工具缺失｜來源=$_src"; return 1;
+    loge "media_rw 递回权限修复工具缺失｜来源=$_src"; return 1;
   }
   _pa_exclude="$RUNTIME/media-exclusions.$$"
   trap 'rm -f "$_pa_exclude"' EXIT
@@ -1706,7 +1706,7 @@ policy_apply() (
   [ ! -f "$PARSED/dirs" ] || awk -F'|' '$2!="media_rw" {print $1}' "$PARSED/dirs" >> "$_pa_exclude"
   ASH_STANDALONE=1 YAW_PERMISSION_BUSYBOX="$_pa_bb" "$_pa_bb" sh "$MODDIR/permissions.sh" "$_src" "$DATA_DIR/permission-state" "$_pa_exclude" >> "$LOG" 2>&1
   _pa_rc=$?
-  [ "$_pa_rc" -eq 0 ] || loge "media_rw 子目錄／檔案權限修復失敗｜來源=$_src｜rc=$_pa_rc"
+  [ "$_pa_rc" -eq 0 ] || loge "media_rw 子目录／档案权限修复失败｜来源=$_src｜rc=$_pa_rc"
   return "$_pa_rc"
 )
 
@@ -1739,14 +1739,14 @@ apply_bindfs_policy() {
       _bpm_fail=0
       while IFS= read -r _bpr || [ -n "$_bpr" ]; do
         case "$_bpr" in ''|'#'*) continue;; esac
-        "$_pt" --live "$_bpr" >/dev/null 2>&1 || { logw "bindfs_shared live sepolicy 套用失敗｜$_bpr"; _bpm_fail=$((_bpm_fail+1)); }
+        "$_pt" --live "$_bpr" >/dev/null 2>&1 || { logw "bindfs_shared live sepolicy 套用失败｜$_bpr"; _bpm_fail=$((_bpm_fail+1)); }
       done < "$POLICY_FILE"
-      [ "$_bpm_fail" -eq 0 ] && logi "bindfs_shared live sepolicy 已套用｜tool=$_pt｜policy=$POLICY_FILE" || logw "bindfs_shared live sepolicy 部分套用失敗｜fail=$_bpm_fail"
+      [ "$_bpm_fail" -eq 0 ] && logi "bindfs_shared live sepolicy 已套用｜tool=$_pt｜policy=$POLICY_FILE" || logw "bindfs_shared live sepolicy 部分套用失败｜fail=$_bpm_fail"
     fi
     printf '%s\n' "$_bpm_key" > "$BIND_POLICY_MARK.tmp.$$" 2>/dev/null && mv -f "$BIND_POLICY_MARK.tmp.$$" "$BIND_POLICY_MARK" 2>/dev/null || true
   else
     rm -f "$BIND_POLICY_MARK" 2>/dev/null || true
-    logw "bindfs_shared 找不到可用官方 magiskpolicy 或主動啟用的 sepolicy.rule；將直接嘗試 bindfs 並輸出 stderr。若 mount /dev/fuse 被 SELinux 擋下，請打包官方 magiskpolicy 與審核後的 sepolicy.rule"
+    logw "bindfs_shared 找不到可用官方 magiskpolicy 或主动启用的 sepolicy.rule；将直接尝试 bindfs 并输出 stderr。若 mount /dev/fuse 被 SELinux 挡下，请打包官方 magiskpolicy 与审核后的 sepolicy.rule"
   fi
   return 0
 }
@@ -1805,7 +1805,7 @@ bindfs_mount_pid() {
   nsenter -t "$_bf_pid" -m -- mkdir -p "$_bf_dst" 2>/dev/null || true
   bindfs_mounted_pid "$_bf_pid" "$_bf_dst" && return 0
   if nsenter -t "$_bf_pid" -m -- awk -v p="$_bf_dst" '$2==p{f=1} END{exit f?0:1}' /proc/mounts 2>/dev/null; then
-    logw "bindfs_shared 目標已有非 bindfs 掛載，先卸載重掛｜pid=$_bf_pid｜目標=$_bf_dst｜來源=$(nsenter -t "$_bf_pid" -m -- awk -v p="$_bf_dst" '$2==p{print $1;exit}' /proc/mounts 2>/dev/null)"
+    logw "bindfs_shared 目标已有非 bindfs 挂载，先卸载重挂｜pid=$_bf_pid｜目标=$_bf_dst｜来源=$(nsenter -t "$_bf_pid" -m -- awk -v p="$_bf_dst" '$2==p{print $1;exit}' /proc/mounts 2>/dev/null)"
     nsenter -t "$_bf_pid" -m -- umount "$_bf_dst" 2>/dev/null || nsenter -t "$_bf_pid" -m -- umount -l "$_bf_dst" 2>/dev/null || true
   fi
   _bf_err="$RUNTIME/bindfs.$_bf_pid.$$.err"
@@ -1814,7 +1814,7 @@ bindfs_mount_pid() {
   _bf_rc=$?
   if [ "$_bf_rc" != 0 ]; then
     _bf_msg=$(cat "$_bf_err" "$_bf_out" 2>/dev/null | tail -n 8 | tr '\n' ' ' | cut -c1-600)
-    loge "bindfs_shared 執行失敗｜pid=$_bf_pid｜uid=$_bf_uid｜rc=$_bf_rc｜dst=$_bf_dst｜stderr=${_bf_msg:-empty}"
+    loge "bindfs_shared 执行失败｜pid=$_bf_pid｜uid=$_bf_uid｜rc=$_bf_rc｜dst=$_bf_dst｜stderr=${_bf_msg:-empty}"
     rm -f "$_bf_err" "$_bf_out" 2>/dev/null || true
     return 1
   fi
@@ -1824,7 +1824,7 @@ bindfs_mount_pid() {
   fi
   _bf_mt=$(nsenter -t "$_bf_pid" -m -- awk -v p="$_bf_dst" '$2==p{print;exit}' /proc/mounts 2>/dev/null)
   _bf_msg=$(cat "$_bf_err" "$_bf_out" 2>/dev/null | tail -n 8 | tr '\n' ' ' | cut -c1-600)
-  loge "bindfs_shared 執行後驗證失敗｜pid=$_bf_pid｜uid=$_bf_uid｜dst=$_bf_dst｜mount=${_bf_mt:-none}｜stderr=${_bf_msg:-empty}"
+  loge "bindfs_shared 执行后验证失败｜pid=$_bf_pid｜uid=$_bf_uid｜dst=$_bf_dst｜mount=${_bf_mt:-none}｜stderr=${_bf_msg:-empty}"
   rm -f "$_bf_err" "$_bf_out" 2>/dev/null || true
   return 1
 }
@@ -1855,16 +1855,16 @@ bindfs_all_ns() {
   done
   [ "$_ok" -gt 0 ] || return 1
   if [ -n "$_mp_pid" ] && bindfs_mounted_pid "$_mp_pid" "$_bf_dst"; then
-    logi "bindfs_shared 已掛入 MediaProvider namespace｜User=$_bf_u｜pid=$_mp_pid｜目標=$_bf_dst｜uid=$_bf_uid gid=$_bf_gid｜mode=v2-static-native-helper-mediaprovider-remount"
+    logi "bindfs_shared 已挂入 MediaProvider namespace｜User=$_bf_u｜pid=$_mp_pid｜目标=$_bf_dst｜uid=$_bf_uid gid=$_bf_gid｜mode=v2-static-native-helper-mediaprovider-remount"
   fi
-  bindfs_mounted_ns1 "$_bf_dst" || logw "bindfs_shared 未出現在 init namespace；已按 v2 路線至少掛入 $_ok 個 namespace｜目標=$_bf_dst"
+  bindfs_mounted_ns1 "$_bf_dst" || logw "bindfs_shared 未出现在 init namespace；已按 v2 路线至少挂入 $_ok 个 namespace｜目标=$_bf_dst"
   return 0
 }
 
 mount_row_ns() {
   _mr_u=$1; _mr_src=$2; _mr_dst=$3; _mr_pol=$4
   if [ "$_mr_pol" = bindfs_shared ]; then
-    logi "使用 bindfs_shared 權限映射掛載｜User=$_mr_u｜$_mr_src → $_mr_dst｜mode=v2-static-native-helper-mediaprovider-remount-lower-mediaprovider"
+    logi "使用 bindfs_shared 权限映射挂载｜User=$_mr_u｜$_mr_src → $_mr_dst｜mode=v2-static-native-helper-mediaprovider-remount-lower-mediaprovider"
     bindfs_all_ns "$_mr_u" "$_mr_src" "$_mr_dst"
   else
     bind_all_ns "$_mr_u" "$_mr_src" "$_mr_dst"
@@ -1874,7 +1874,7 @@ mount_row_ns() {
 mount_row_ns_base() {
   _mrb_u=$1; _mrb_src=$2; _mrb_dst=$3; _mrb_pol=$4
   if [ "$_mrb_pol" = bindfs_shared ]; then
-    logi "使用 bindfs_shared 權限映射掛載｜User=$_mrb_u｜$_mrb_src → $_mrb_dst｜mode=v2-static-native-helper-mediaprovider-remount-lower-mediaprovider"
+    logi "使用 bindfs_shared 权限映射挂载｜User=$_mrb_u｜$_mrb_src → $_mrb_dst｜mode=v2-static-native-helper-mediaprovider-remount-lower-mediaprovider"
     bindfs_all_ns "$_mrb_u" "$_mrb_src" "$_mrb_dst"
   else
     bind_all_ns_base "$_mrb_u" "$_mrb_src" "$_mrb_dst"
@@ -1934,15 +1934,15 @@ profile_ns_background_sync() {
   (
     trap 'rm -f "$_pbs_old_copy" "$_pbs_new_copy" 2>/dev/null || true' EXIT INT TERM
     ns_background_generation_current "$_pbs_gen" || exit 0
-    logi "Profile App namespace 背景同步啟動｜generation=$_pbs_gen"
+    logi "Profile App namespace 背景同步启动｜generation=$_pbs_gen"
     while IFS='|' read -r _bn _bu _bs _bt _bl _bv _be _bg _bpv _bpol _bc _bm; do
       [ -n "$_bl" ] || continue
-      ns_background_generation_current "$_pbs_gen" || { logi "Profile App namespace 背景同步取消：generation 過期｜generation=$_pbs_gen"; exit 0; }
+      ns_background_generation_current "$_pbs_gen" || { logi "Profile App namespace 背景同步取消：generation 过期｜generation=$_pbs_gen"; exit 0; }
       unmount_app_ns_only "$_pbs_gen" "$_bu" "$_bs" "$_bl" "$_bpol" >/dev/null 2>&1 || true
     done < "$_pbs_old_copy"
     while IFS='|' read -r _bn _bu _bs _bt _bl _bv _be _bg _bpv _bpol _bc _bm; do
       [ -n "$_bl" ] || continue
-      ns_background_generation_current "$_pbs_gen" || { logi "Profile App namespace 背景同步取消：generation 過期｜generation=$_pbs_gen"; exit 0; }
+      ns_background_generation_current "$_pbs_gen" || { logi "Profile App namespace 背景同步取消：generation 过期｜generation=$_pbs_gen"; exit 0; }
       mount_app_ns_only "$_pbs_gen" "$_bu" "$_bs" "$_bl" "$_bpol" >/dev/null 2>&1 || true
     done < "$_pbs_new_copy"
     ns_background_generation_current "$_pbs_gen" && logi "Profile App namespace 背景同步完成｜generation=$_pbs_gen"
@@ -1996,7 +1996,7 @@ profile_native_preflight_rows() {
     if [ "$_pnpr_pol" = bindfs_shared ]; then
       bindfs_ready || return 1
       apply_bindfs_policy || return 1
-      ensure_media_pid "$_pnpr_u" >/dev/null 2>&1 || logw "Profile native bindfs_shared 尚未鎖定 MediaProvider，mounttx 將自行搜尋｜User=$_pnpr_u｜名稱=$_pnpr_n"
+      ensure_media_pid "$_pnpr_u" >/dev/null 2>&1 || logw "Profile native bindfs_shared 尚未锁定 MediaProvider，mounttx 将自行搜寻｜User=$_pnpr_u｜名称=$_pnpr_n"
     fi
   done < "$_pnpr_file"
   return 0
@@ -2006,7 +2006,7 @@ profile_rollback_rows() {
   _prr_new=$1; _prr_old=$2; _prr_tag=$3; _prr_reason=${4:-switch_failed}
   # Invalidate every older namespace worker before rollback touches mounts.
   ns_background_generation_set "rollback.$_prr_tag" >/dev/null 2>&1 || true
-  logw "Profile rollback 開始｜原因=$_prr_reason｜tag=$_prr_tag"
+  logw "Profile rollback 开始｜原因=$_prr_reason｜tag=$_prr_tag"
   if [ -f "$_prr_new" ]; then
     while IFS='|' read -r _prr_n _prr_u _prr_s _prr_t _prr_l _prr_v _prr_e _prr_g _prr_pv _prr_pol _prr_c _prr_m; do
       [ -n "$_prr_l" ] || continue
@@ -2030,14 +2030,14 @@ profile_rollback_rows() {
         sleep 0.18
       done
       if [ "$_prr_ok" -ne 1 ]; then
-        loge "Profile rollback 無法恢復舊掛載｜原因=$_prr_reason｜名稱=$_prr_n｜$_prr_s → $_prr_t"
+        loge "Profile rollback 无法恢复旧挂载｜原因=$_prr_reason｜名称=$_prr_n｜$_prr_s → $_prr_t"
         _prr_fail=$((_prr_fail+1))
       else
-        logi "Profile rollback 已驗證舊掛載｜原因=$_prr_reason｜名稱=$_prr_n｜$_prr_s → $_prr_t"
+        logi "Profile rollback 已验证旧挂载｜原因=$_prr_reason｜名称=$_prr_n｜$_prr_s → $_prr_t"
       fi
     done < "$_prr_old"
   fi
-  [ "$_prr_fail" -eq 0 ] && logi "Profile rollback 完成｜原因=$_prr_reason｜tag=$_prr_tag" || loge "Profile rollback 完成但仍有失敗｜原因=$_prr_reason｜fail=$_prr_fail｜tag=$_prr_tag"
+  [ "$_prr_fail" -eq 0 ] && logi "Profile rollback 完成｜原因=$_prr_reason｜tag=$_prr_tag" || loge "Profile rollback 完成但仍有失败｜原因=$_prr_reason｜fail=$_prr_fail｜tag=$_prr_tag"
   [ "$_prr_fail" -eq 0 ]
 }
 
@@ -2069,19 +2069,19 @@ media_scan_broadcast() {
   _msb_u=$1; _msb_path=$2; _msb_reason=${3:-mount}
   case "$_msb_u" in ''|*[!0-9]*) return 2;; esac
   valid_safe_abs "$_msb_path" || return 2
-  [ -e "$_msb_path" ] || { logw "媒體掃描廣播略過：路徑不存在｜User=$_msb_u｜路徑=$_msb_path｜原因=$_msb_reason"; return 1; }
+  [ -e "$_msb_path" ] || { logw "媒体扫描广播略过：路径不存在｜User=$_msb_u｜路径=$_msb_path｜原因=$_msb_reason"; return 1; }
   if command -v am >/dev/null 2>&1; then
     am broadcast --user "$_msb_u" -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$_msb_path" >/dev/null 2>&1 \
       || am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$_msb_path" >/dev/null 2>&1
     _msb_rc=$?
     if [ "$_msb_rc" -eq 0 ]; then
-      logi "已通知媒體掃描｜User=$_msb_u｜路徑=$_msb_path｜原因=$_msb_reason"
+      logi "已通知媒体扫描｜User=$_msb_u｜路径=$_msb_path｜原因=$_msb_reason"
       return 0
     fi
-    logw "媒體掃描廣播失敗｜User=$_msb_u｜路徑=$_msb_path｜原因=$_msb_reason｜rc=$_msb_rc"
+    logw "媒体扫描广播失败｜User=$_msb_u｜路径=$_msb_path｜原因=$_msb_reason｜rc=$_msb_rc"
     return "$_msb_rc"
   fi
-  logw "媒體掃描廣播失敗：am 指令不存在｜User=$_msb_u｜路徑=$_msb_path｜原因=$_msb_reason"
+  logw "媒体扫描广播失败：am 指令不存在｜User=$_msb_u｜路径=$_msb_path｜原因=$_msb_reason"
   return 127
 }
 
@@ -2089,7 +2089,7 @@ media_scan_schedule_path() {
   _mss_u=$1; _mss_path=$2; _mss_reason=${3:-mount}; _mss_delay=${4:-1}
   case "$_mss_u" in ''|*[!0-9]*) return 0;; esac
   valid_safe_abs "$_mss_path" || return 0
-  logi "媒體掃描廣播已排程｜User=$_mss_u｜路徑=$_mss_path｜原因=$_mss_reason｜delay=${_mss_delay}s"
+  logi "媒体扫描广播已排程｜User=$_mss_u｜路径=$_mss_path｜原因=$_mss_reason｜delay=${_mss_delay}s"
   (
     sleep "$_mss_delay"
     MODDIR="$MODDIR" sh "$MODDIR/mount.sh" media_scan_now "$_mss_u" "$_mss_path" "$_mss_reason"
@@ -2144,7 +2144,7 @@ visible_probe_retry() {
   for _vpr_delay in 0 0.12 0.25 0.45; do
     [ "$_vpr_delay" = 0 ] || sleep "$_vpr_delay"
     if visible_probe "$_vpr_u" "$_vpr_src" "$_vpr_vis"; then
-      [ "$_vpr_try" -gt 0 ] && logi "可見性驗證重試成功｜名稱=$_vpr_label｜路徑=$_vpr_vis｜try=$_vpr_try"
+      [ "$_vpr_try" -gt 0 ] && logi "可见性验证重试成功｜名称=$_vpr_label｜路径=$_vpr_vis｜try=$_vpr_try"
       return 0
     fi
     _vpr_try=$((_vpr_try+1))
@@ -2196,7 +2196,7 @@ unmount_all_ns_base() {
 
 ensure_dir_policy() {
   _p=$1; _pol=$2
-  mkdir -p "$_p" 2>/dev/null || { loge "建立準備目錄失敗｜$_p"; return 1; }
+  mkdir -p "$_p" 2>/dev/null || { loge "建立准备目录失败｜$_p"; return 1; }
   policy_apply "$_p" "$_pol"
 }
 
@@ -2205,7 +2205,7 @@ ensure_source_dir() {
   if [ ! -d "$_src" ]; then
     [ "$_create" = 1 ] || return 1
     mkdir -p "$_src" 2>/dev/null || return 1
-    logi "已依 mount.conf 建立來源目錄｜$_src"
+    logi "已依 mount.conf 建立来源目录｜$_src"
   fi
   policy_apply "$_src" "$_pol" || return 1
   return 0
@@ -2223,23 +2223,23 @@ migrate_once() {
   mkdir -p "$_src" "$_lower" 2>/dev/null || return 1
   # Never migrate from a path that is already a mountpoint; that could copy another mounted source.
   if is_mounted "$_lower"; then
-    logw "首次搬移略過：目標已是掛載點｜$_lower"
+    logw "首次搬移略过：目标已是挂载点｜$_lower"
     : > "$_marker" 2>/dev/null || true
     return 0
   fi
   _has=$(find "$_lower" -mindepth 1 -maxdepth 1 2>/dev/null | head -n1)
   if [ -z "$_has" ]; then : > "$_marker" 2>/dev/null || true; return 0; fi
-  logi "開始一次性搬移既有內容｜$_lower → $_src"
+  logi "开始一次性搬移既有内容｜$_lower → $_src"
   _list="$RUNTIME/migrate.$$.list"; _mfail=0
   find "$_lower" -mindepth 1 -maxdepth 1 2>/dev/null > "$_list"
   while IFS= read -r _item; do
     [ -n "$_item" ] || continue
     _bn=${_item##*/}
     if [ -e "$_src/$_bn" ]; then
-      logw "搬移同名衝突，保留來源目標兩邊既有項目｜$_bn"
+      logw "搬移同名冲突，保留来源目标两边既有项目｜$_bn"
       continue
     fi
-    mv "$_item" "$_src/" 2>/dev/null || { logw "搬移失敗，保留待下次重試｜$_item"; _mfail=1; }
+    mv "$_item" "$_src/" 2>/dev/null || { logw "搬移失败，保留待下次重试｜$_item"; _mfail=1; }
   done < "$_list"
   rm -f "$_list" 2>/dev/null
   # Moved files retain their old private metadata, even when the destination
@@ -2357,7 +2357,7 @@ apply_reload() {
   _pre_applied=$(cat "$APPLIED_HASH" 2>/dev/null)
   if [ -n "$_pre_hash" ] && [ "$_pre_hash" = "$_pre_applied" ] && parsed_cache_matches_hash "$_pre_hash" && [ "$(config_state_value STATE)" = valid ]; then
     if active_sources_need_refresh_for_file "$ACTIVE"; then
-      logw "設定內容未變但偵測到來源 inode 變更，仍執行掛載重建｜原因=$_reason"
+      logw "设定内容未变但侦测到来源 inode 变更，仍执行挂载重建｜原因=$_reason"
     else
       case "$_reason" in
         config_event|config_event_retry|manual|webui|profile_prerepair)
@@ -2370,9 +2370,9 @@ apply_reload() {
 
   if [ "${YAWASAU_RELOAD_LOCK_PREHELD:-0}" = 1 ]; then
     _owner=$(cat "$LOCKDIR/pid" 2>/dev/null)
-    [ "$_owner" = "$$" ] || { loge "Profile 交易鎖擁有者不一致"; return 4; }
+    [ "$_owner" = "$$" ] || { loge "Profile 交易锁拥有者不一致"; return 4; }
   else
-    lock_acquire || { loge "取得重新套用鎖超時"; return 4; }
+    lock_acquire || { loge "取得重新套用锁超时"; return 4; }
   fi
 
   _parsed_saved=$PARSED
@@ -2381,7 +2381,7 @@ apply_reload() {
   trap 'rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null; PARSED="$_parsed_saved"; lock_release' EXIT INT TERM
 
   _cfg_hash=$(config_snapshot_make "$_txn_cfg") || {
-    loge "建立 mount.conf 穩定快照失敗，保留目前掛載｜原因=$_reason"
+    loge "建立 mount.conf 稳定快照失败，保留目前挂载｜原因=$_reason"
     rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null
     PARSED="$_parsed_saved"; lock_release; trap - EXIT INT TERM
     return 3
@@ -2392,7 +2392,7 @@ apply_reload() {
       _applied_after_lock=$(cat "$APPLIED_HASH" 2>/dev/null)
       if [ -n "$_cfg_hash" ] && [ "$_cfg_hash" = "$_applied_after_lock" ] && parsed_cache_matches_hash "$_cfg_hash" && [ "$(config_state_value STATE)" = valid ]; then
         if active_sources_need_refresh_for_file "$ACTIVE"; then
-          logw "設定內容未變但偵測到來源 inode 變更，仍執行掛載重建｜原因=$_reason"
+          logw "设定内容未变但侦测到来源 inode 变更，仍执行挂载重建｜原因=$_reason"
         else
           config_state_write valid 0 "duplicate_$_reason" "$_cfg_hash" >/dev/null 2>&1 || true
           rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null
@@ -2414,13 +2414,13 @@ apply_reload() {
     # live file has been re-sampled after a short settle.
     _pri=1
     for _psleep in 0.20 0.45 0.80; do
-      logw "mount.conf 解析失敗，可能仍在寫入中，稍後重試｜原因=$_reason｜retry=$_pri"
+      logw "mount.conf 解析失败，可能仍在写入中，稍后重试｜原因=$_reason｜retry=$_pri"
       sleep "$_psleep"
       rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null
       _cfg_hash=$(config_snapshot_make "$_txn_cfg" 2>/dev/null || true)
       if [ -n "$_cfg_hash" ] && parse_config "$_txn_cfg" "$_txn_parsed"; then
         _parse_ok=1
-        logi "mount.conf 重試解析成功｜原因=$_reason｜retry=$_pri"
+        logi "mount.conf 重试解析成功｜原因=$_reason｜retry=$_pri"
         break
       fi
       _pri=$((_pri+1))
@@ -2431,7 +2431,7 @@ apply_reload() {
     if [ -n "$_cfg_hash" ] && [ "$_cfg_hash" = "$_applied_after_parse_fail" ] && parsed_cache_matches_hash "$_cfg_hash" && active_sources_need_refresh_for_file "$ACTIVE"; then
       if parsed_clone_dir "$PARSED_REAL" "$_txn_parsed"; then
         _parse_ok=1
-        logw "mount.conf same-hash 解析失敗但最後有效快照可用，改用 last-good parsed 執行來源 inode 重建｜原因=$_reason｜hash=$_cfg_hash"
+        logw "mount.conf same-hash 解析失败但最后有效快照可用，改用 last-good parsed 执行来源 inode 重建｜原因=$_reason｜hash=$_cfg_hash"
       fi
     fi
   fi
@@ -2446,16 +2446,16 @@ apply_reload() {
         # Keep the last-good full parsed cache when a new mount.conf is invalid.
         # Publishing root-only parsed here makes WebUI/notifications lose the old
         # 6/6 mount rows even though active_mounts is intentionally preserved.
-        logw "mount.conf 掛載項驗證失敗，但主分區 global 設定有效，已先掛載主分區｜原因=$_reason"
+        logw "mount.conf 挂载项验证失败，但主分区 global 设定有效，已先挂载主分区｜原因=$_reason"
       else
         _porc=$?
-        logw "mount.conf 掛載項驗證失敗；global 有效但主分區掛載也失敗｜原因=$_reason｜rc=$_porc"
+        logw "mount.conf 挂载项验证失败；global 有效但主分区挂载也失败｜原因=$_reason｜rc=$_porc"
       fi
       PARSED="$_po_saved"
     fi
     rm -rf "$_root_only" 2>/dev/null
     config_state_write invalid 3 "$_reason" "$_cfg_hash" >/dev/null 2>&1 || true
-    loge "設定熱更新失敗：穩定快照語法/驗證未通過，保留目前掛載｜原因=$_reason"
+    loge "设定热更新失败：稳定快照语法/验证未通过，保留目前挂载｜原因=$_reason"
     rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null
     PARSED="$_parsed_saved"; lock_release; trap - EXIT INT TERM
     return 3
@@ -2468,7 +2468,7 @@ apply_reload() {
     config_event|config_event_retry|profile_change|manual|webui|profile_prerepair)
       if [ -n "$_cfg_hash" ] && [ "$_cfg_hash" = "$_applied_hash" ]; then
         if active_sources_need_refresh_for_file "$ACTIVE"; then
-          logw "設定內容未變但偵測到來源 inode 變更，仍執行掛載重建｜原因=$_reason"
+          logw "设定内容未变但侦测到来源 inode 变更，仍执行挂载重建｜原因=$_reason"
         else
           parsed_publish_dir "$_txn_parsed" "$_cfg_hash" >/dev/null 2>&1 || true
           config_state_write valid 0 "duplicate_$_reason" "$_cfg_hash" >/dev/null 2>&1 || true
@@ -2495,13 +2495,13 @@ apply_reload() {
     global_preflight || {
       _rc=$?
       config_state_write invalid "$_rc" "$_reason" "$_cfg_hash" >/dev/null 2>&1 || true
-      loge "設定熱更新預檢失敗，保留目前掛載｜原因=$_reason｜rc=$_rc"
+      loge "设定热更新预检失败，保留目前挂载｜原因=$_reason｜rc=$_rc"
       rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null
       PARSED="$_parsed_saved"; lock_release; trap - EXIT INT TERM
       return "$_rc"
     }
     if [ -n "$_oldglobal" ] && [ "$_oldglobal" != "$_newglobal" ]; then
-      logw "主分區設定已變更，先卸載既有映射再切換裝置/掛載點"
+      logw "主分区设定已变更，先卸载既有映射再切换装置/挂载点"
       unmount_active_all
       _oldmp=$(printf '%s\n' "$_oldglobal" | sed -n 's/^mount_point=//p')
       _oldpart=$(printf '%s\n' "$_oldglobal" | sed -n 's/^partition=//p')
@@ -2512,7 +2512,7 @@ apply_reload() {
         if [ -n "$_expect" ] && [ "$_curdev" = "$_expect" ]; then
           ns1 umount "$_oldmp" 2>/dev/null || ns1 umount -l "$_oldmp" 2>/dev/null || true
         else
-          loge "拒絕卸載已被其他來源取代或已無法確認來源的舊主掛載點｜$_oldmp｜目前來源=$_curdev｜舊分區=$_oldpart"
+          loge "拒绝卸载已被其他来源取代或已无法确认来源的旧主挂载点｜$_oldmp｜目前来源=$_curdev｜旧分区=$_oldpart"
           config_state_write invalid 25 "$_reason" "$_cfg_hash" >/dev/null 2>&1 || true
           rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null
           PARSED="$_parsed_saved"; lock_release; trap - EXIT INT TERM
@@ -2550,7 +2550,7 @@ apply_reload() {
   if ! preflight_desired_mounts "$PARSED/mounts.desired" "$_apply_scope"; then
     _rc=27
     config_state_write invalid "$_rc" "$_reason" "$_cfg_hash" >/dev/null 2>&1 || true
-    loge "設定熱更新預檢失敗，未卸載既有掛載｜原因=$_reason｜rc=$_rc"
+    loge "设定热更新预检失败，未卸载既有挂载｜原因=$_reason｜rc=$_rc"
     rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null
     PARSED="$_parsed_saved"; lock_release; trap - EXIT INT TERM
     return "$_rc"
@@ -2590,7 +2590,7 @@ apply_reload() {
       _mpol=$(printf '%s
 ' "$_match" | awk -F'|' '{print $10}')
       if [ -z "$_match" ] || [ "$_ms" != "$_s" ] || [ "$_mpol" != "$_pol" ]; then
-        logi "卸載已刪除/變更項目｜名稱=$_n｜User=$_u｜目標=$_t｜舊策略=$_pol｜新策略=${_mpol:-none}"
+        logi "卸载已删除/变更项目｜名称=$_n｜User=$_u｜目标=$_t｜旧策略=$_pol｜新策略=${_mpol:-none}"
         unmount_all_ns "$_u" "$_s" "$_l" "$_pol"
         restore_visible_target_after_unmount "$_u" "$_l" "$_v" "$_n" "$_reason" >/dev/null 2>&1 || true
       fi
@@ -2614,22 +2614,22 @@ apply_reload() {
       fi
     fi
 
-    if [ -n "$_v" ] && ! user_storage_available "$_u"; then logi "User 儲存根目錄尚未就緒，延後掛載｜名稱=$_n｜User=$_u"; _defer=$((_defer+1)); continue; fi
-    if [ "$_pol" = bindfs_shared ] && ! bindfs_ready; then loge "bindfs_shared 依賴缺失，暫不掛載｜名稱=$_n"; _fail=$((_fail+1)); continue; fi
-    if ! ensure_source_dir "$_s" "$_create" "$_pol"; then logw "來源不存在且 create=0，暫不掛載｜名稱=$_n｜來源=$_s"; _fail=$((_fail+1)); continue; fi
+    if [ -n "$_v" ] && ! user_storage_available "$_u"; then logi "User 储存根目录尚未就绪，延后挂载｜名称=$_n｜User=$_u"; _defer=$((_defer+1)); continue; fi
+    if [ "$_pol" = bindfs_shared ] && ! bindfs_ready; then loge "bindfs_shared 依赖缺失，暂不挂载｜名称=$_n"; _fail=$((_fail+1)); continue; fi
+    if ! ensure_source_dir "$_s" "$_create" "$_pol"; then logw "来源不存在且 create=0，暂不挂载｜名称=$_n｜来源=$_s"; _fail=$((_fail+1)); continue; fi
     target_mkdir_or_defer "$_u" "$_l" "$_v" "$_n" apply
     _tm_rc=$?
     case "$_tm_rc" in
       0) ;;
       75) _defer=$((_defer+1)); continue ;;
-      *) loge "建立目標失敗｜名稱=$_n｜$_l"; _fail=$((_fail+1)); continue ;;
+      *) loge "建立目标失败｜名称=$_n｜$_l"; _fail=$((_fail+1)); continue ;;
     esac
     if target_occupied_unknown "$_s" "$_l" "$_pol"; then
       _occupied=$(mount_src "$_l")
-      loge "目標已被未知來源占用，拒絕堆疊掛載｜名稱=$_n｜目標=$_l｜目前來源=${_occupied:-unknown}"
+      loge "目标已被未知来源占用，拒绝堆叠挂载｜名称=$_n｜目标=$_l｜目前来源=${_occupied:-unknown}"
       _fail=$((_fail+1)); continue
     fi
-    migrate_once "$_u" "$_s" "$_l" "$_migrate" "$_pol" || { logw "一次性搬移或權限修復未完整成功｜名稱=$_n"; _fail=$((_fail+1)); }
+    migrate_once "$_u" "$_s" "$_l" "$_migrate" "$_pol" || { logw "一次性搬移或权限修复未完整成功｜名称=$_n"; _fail=$((_fail+1)); }
     if row_mounted "$_u" "$_s" "$_l" "$_pol"; then
       _bok=1
     else
@@ -2642,20 +2642,20 @@ apply_reload() {
     if [ "$_bok" = 1 ]; then
       if [ -n "$_v" ]; then
         if visible_probe "$_u" "$_s" "$_v"; then
-          logi "手機儲存已可看到掛載｜名稱=$_n｜User=$_u｜路徑=$_v"
+          logi "手机储存已可看到挂载｜名称=$_n｜User=$_u｜路径=$_v"
           media_scan_schedule_visible "$_u" "$_v" "$_reason" >/dev/null 2>&1 || true
-          logi "掛載正常｜名稱=$_n｜User=$_u｜$_s → $_t"
+          logi "挂载正常｜名称=$_n｜User=$_u｜$_s → $_t"
         else
-          logw "掛載已完成但手機儲存可見性驗證失敗｜名稱=$_n｜User=$_u｜目標=$_v"; _fail=$((_fail+1))
+          logw "挂载已完成但手机储存可见性验证失败｜名称=$_n｜User=$_u｜目标=$_v"; _fail=$((_fail+1))
         fi
       else
-        logi "掛載正常｜名稱=$_n｜User=$_u｜$_s → $_t"
+        logi "挂载正常｜名称=$_n｜User=$_u｜$_s → $_t"
       fi
       printf '%s
 ' "$_row" >> "$_next"
       active_source_state_append "$_next_src_state" "$_u" "$_l" "$_s" "$_pol"
     else
-      loge "掛載失敗｜名稱=$_n｜User=$_u｜$_s → $_t"; _fail=$((_fail+1))
+      loge "挂载失败｜名称=$_n｜User=$_u｜$_s → $_t"; _fail=$((_fail+1))
     fi
   done < "$PARSED/mounts.desired"
 
@@ -2676,9 +2676,9 @@ apply_reload() {
   else
     rm -f "$_next" "$_next_src_state" 2>/dev/null
     config_state_write invalid 1 "$_reason" "$_cfg_hash" "$_defer" >/dev/null 2>&1 || true
-    logw "設定套用未完整成功，active_mounts 保留上一個成功狀態｜原因=$_reason｜失敗=$_fail"
+    logw "设定套用未完整成功，active_mounts 保留上一个成功状态｜原因=$_reason｜失败=$_fail"
   fi
-  logi "設定已套用｜原因=$_reason｜失敗=$_fail｜等待解鎖=$_defer"
+  logi "设定已套用｜原因=$_reason｜失败=$_fail｜等待解锁=$_defer"
   rm -f "$_txn_cfg" 2>/dev/null; rm -rf "$_txn_parsed" 2>/dev/null
   PARSED="$_parsed_saved"
   lock_release; trap - EXIT INT TERM
@@ -2701,23 +2701,23 @@ preflight_desired_mounts() {
     _pf_row=$(printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s' "$_pf_n" "$_pf_u" "$_pf_s" "$_pf_t" "$_pf_l" "$_pf_v" "$_pf_e" "$_pf_g" "$_pf_pv" "$_pf_pol" "$_pf_create" "$_pf_migrate")
     if [ -f "$ACTIVE" ] && grep -Fqx "$_pf_row" "$ACTIVE" 2>/dev/null && row_mounted "$_pf_u" "$_pf_s" "$_pf_l" "$_pf_pol"; then
       policy_apply "$_pf_s" "$_pf_pol" || {
-        loge "預檢失敗：既有掛載來源權限修復失敗｜名稱=$_pf_n｜來源=$_pf_s"
+        loge "预检失败：既有挂载来源权限修复失败｜名称=$_pf_n｜来源=$_pf_s"
         _pf_fail=$((_pf_fail+1))
       }
       continue
     fi
     if [ -n "$_pf_v" ] && ! user_storage_available "$_pf_u"; then
-      logi "User 儲存根目錄尚未就緒，預檢延後掛載｜名稱=$_pf_n｜User=$_pf_u"
+      logi "User 储存根目录尚未就绪，预检延后挂载｜名称=$_pf_n｜User=$_pf_u"
       _pf_defer=$((_pf_defer+1))
       continue
     fi
     if [ "$_pf_pol" = bindfs_shared ] && ! bindfs_ready; then
-      loge "預檢失敗：bindfs_shared 依賴缺失，保留既有掛載｜名稱=$_pf_n"
+      loge "预检失败：bindfs_shared 依赖缺失，保留既有挂载｜名称=$_pf_n"
       _pf_fail=$((_pf_fail+1))
       continue
     fi
     if ! ensure_source_dir "$_pf_s" "$_pf_create" "$_pf_pol"; then
-      logw "預檢失敗：來源不存在、無法建立或權限修復失敗，保留既有掛載｜名稱=$_pf_n｜來源=$_pf_s"
+      logw "预检失败：来源不存在、无法建立或权限修复失败，保留既有挂载｜名称=$_pf_n｜来源=$_pf_s"
       _pf_fail=$((_pf_fail+1))
       continue
     fi
@@ -2727,7 +2727,7 @@ preflight_desired_mounts() {
       0) ;;
       75) _pf_defer=$((_pf_defer+1)); continue ;;
       *)
-        loge "預檢失敗：目標無法建立，保留既有掛載｜名稱=$_pf_n｜目標=$_pf_l"
+        loge "预检失败：目标无法建立，保留既有挂载｜名称=$_pf_n｜目标=$_pf_l"
         _pf_fail=$((_pf_fail+1))
         continue
         ;;
@@ -2744,10 +2744,10 @@ preflight_desired_mounts() {
 ' "$_pf_old" | awk -F'|' '{print $10}')
       fi
       if [ -n "$_pf_old" ] && [ "$_pf_old_s" = "$_pf_s" ] && [ "$_pf_old_pol" != "$_pf_pol" ]; then
-        logi "預檢允許替換既有掛載策略｜名稱=$_pf_n｜User=$_pf_u｜目標=$_pf_l｜舊策略=$_pf_old_pol｜新策略=$_pf_pol"
+        logi "预检允许替换既有挂载策略｜名称=$_pf_n｜User=$_pf_u｜目标=$_pf_l｜旧策略=$_pf_old_pol｜新策略=$_pf_pol"
       else
         _pf_occ=$(mount_src "$_pf_l")
-        loge "預檢失敗：目標已被未知來源占用，保留既有掛載｜名稱=$_pf_n｜目標=$_pf_l｜目前來源=${_pf_occ:-unknown}"
+        loge "预检失败：目标已被未知来源占用，保留既有挂载｜名称=$_pf_n｜目标=$_pf_l｜目前来源=${_pf_occ:-unknown}"
         _pf_fail=$((_pf_fail+1))
         continue
       fi
@@ -2772,7 +2772,7 @@ unmount_user_active() {
     while IFS='|' read -r _n _u _s _t _l _v _e _g _pv _pol _create _migrate; do
       [ -n "$_l" ] || continue
       if [ "$_u" = "$_target_user" ]; then
-        logi "User 停止，卸載項目｜User=$_u｜名稱=$_n｜目標=$_t"
+        logi "User 停止，卸载项目｜User=$_u｜名称=$_n｜目标=$_t"
         unmount_all_ns "$_u" "$_s" "$_l" "$_pol"
       else
         printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$_n" "$_u" "$_s" "$_t" "$_l" "$_v" "$_e" "$_g" "$_pv" "$_pol" "$_create" "$_migrate" >> "$_next"
@@ -2797,7 +2797,7 @@ set_profile() {
   # editor write, try to repair the last-good parsed snapshot from the now
   # stable live mount.conf before rejecting profile switches.
   if ! config_state_valid || [ ! -f "$PARSED/profiles" ] || [ ! -f "$PARSED/mounts.all" ] || [ ! -f "$PARSED/mounts.desired" ]; then
-    logw "Profile 切換前檢測最後有效設定快照無效，先嘗試重新套用目前 mount.conf"
+    logw "Profile 切换前检测最后有效设定快照无效，先尝试重新套用目前 mount.conf"
     apply_reload profile_prerepair >/dev/null 2>&1 || true
   fi
 
@@ -2806,11 +2806,11 @@ set_profile() {
   # - uses the last-good parsed snapshot + applied hash as the authority;
   # - does not publish mount.conf until the new bind is already verified;
   # - confwatch therefore sees only the final committed config and hash-skips it.
-  lock_acquire || { loge "Profile 切換取得交易鎖超時"; return 4; }
+  lock_acquire || { loge "Profile 切换取得交易锁超时"; return 4; }
   trap 'lock_release' EXIT INT TERM
 
   if ! config_state_valid || [ ! -f "$PARSED/profiles" ] || [ ! -f "$PARSED/mounts.all" ] || [ ! -f "$PARSED/mounts.desired" ]; then
-    loge "Profile 切換拒絕：最後有效設定快照不存在或無效"
+    loge "Profile 切换拒绝：最后有效设定快照不存在或无效"
     lock_release; trap - EXIT INT TERM
     return 3
   fi
@@ -2818,7 +2818,7 @@ set_profile() {
   _sp_live_hash=$(config_hash "$CONF" 2>/dev/null || true)
   _sp_applied_hash=$(cat "$APPLIED_HASH" 2>/dev/null)
   if [ -z "$_sp_live_hash" ] || [ -z "$_sp_applied_hash" ] || [ "$_sp_live_hash" != "$_sp_applied_hash" ]; then
-    logw "Profile 切換暫停：mount.conf 有尚未套用的外部變更，等待 confwatch 先完成"
+    logw "Profile 切换暂停：mount.conf 有尚未套用的外部变更，等待 confwatch 先完成"
     lock_release; trap - EXIT INT TERM
     return 8
   fi
@@ -2833,7 +2833,7 @@ set_profile() {
 
   _sp_current=$(awk -F'|' -v g="$_sp_group" '$1==g{print $2;exit}' "$PARSED/profiles")
   [ -n "$_sp_current" ] || {
-    loge "Profile 切換失敗：找不到群組｜group=$_sp_group"
+    loge "Profile 切换失败：找不到群组｜group=$_sp_group"
     lock_release; trap - EXIT INT TERM
     return 4
   }
@@ -2844,7 +2844,7 @@ set_profile() {
 
   # The requested option must already exist in the last-good parsed config.
   awk -F'|' -v g="$_sp_group" -v v="$_sp_value" '$7=="1"&&$8==g&&$9==v{f=1} END{exit f?0:1}' "$PARSED/mounts.all" || {
-    loge "Profile 切換失敗：群組沒有此選項｜group=$_sp_group｜value=$_sp_value"
+    loge "Profile 切换失败：群组没有此选项｜group=$_sp_group｜value=$_sp_value"
     lock_release; trap - EXIT INT TERM
     return 4
   }
@@ -2895,7 +2895,7 @@ set_profile() {
   # A profile option is allowed only if the resulting active view still has
   # unique User+lower targets. This is the same safety contract as parse_config.
   if [ "$(cut -d'|' -f2,5 "$_sp_desired_new" 2>/dev/null | sort | uniq -d | head -n1)" ]; then
-    loge "Profile 切換拒絕：選擇後會造成重複 target"
+    loge "Profile 切换拒绝：选择后会造成重复 target"
     rm -f $_sp_cleanup 2>/dev/null
     lock_release; trap - EXIT INT TERM
     return 4
@@ -2904,7 +2904,7 @@ set_profile() {
   # Refuse to race an editor that does not participate in our lock.
   _sp_now_hash=$(config_hash "$CONF" 2>/dev/null || true)
   if [ "$_sp_now_hash" != "$_sp_live_hash" ]; then
-    logw "Profile 切換取消：mount.conf 同時被其他程序修改"
+    logw "Profile 切换取消：mount.conf 同时被其他程序修改"
     rm -f $_sp_cleanup 2>/dev/null
     lock_release; trap - EXIT INT TERM
     return 7
@@ -2938,11 +2938,11 @@ set_profile() {
   while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
     [ -n "$_sp_l" ] || continue
     if [ -n "$_sp_v" ] && ! user_storage_available "$_sp_u"; then
-      logw "Profile 切換暫停：User 儲存根目錄尚未就緒｜User=$_sp_u｜名稱=$_sp_n"
+      logw "Profile 切换暂停：User 储存根目录尚未就绪｜User=$_sp_u｜名称=$_sp_n"
       _sp_pre_fail=1; break
     fi
     ensure_source_dir "$_sp_s" "$_sp_create" "$_sp_pol" || {
-      loge "Profile 切換失敗：來源不存在或無法準備｜名稱=$_sp_n｜來源=$_sp_s"
+      loge "Profile 切换失败：来源不存在或无法准备｜名称=$_sp_n｜来源=$_sp_s"
       _sp_pre_fail=1; break
     }
     mkdir -p "$_sp_l" 2>/dev/null || { _sp_pre_fail=1; break; }
@@ -2956,7 +2956,7 @@ set_profile() {
   # One final external-editor check immediately before changing mounts.
   _sp_now_hash=$(config_hash "$CONF" 2>/dev/null || true)
   if [ "$_sp_now_hash" != "$_sp_live_hash" ]; then
-    logw "Profile 切換取消：掛載前 mount.conf 已被其他程序修改"
+    logw "Profile 切换取消：挂载前 mount.conf 已被其他程序修改"
     rm -f $_sp_cleanup 2>/dev/null
     lock_release; trap - EXIT INT TERM
     return 7
@@ -2974,7 +2974,7 @@ set_profile() {
   # profile had already committed.
   _sp_fence_gen="profiletxn.$_sp_tag"
   if ! ns_background_generation_set "$_sp_fence_gen"; then
-    loge "Profile 切換失敗：無法建立 namespace generation fence"
+    loge "Profile 切换失败：无法建立 namespace generation fence"
     rm -f $_sp_cleanup 2>/dev/null
     lock_release; trap - EXIT INT TERM
     return 5
@@ -2985,13 +2985,13 @@ set_profile() {
   # visible probe retry, and rollback.  Shell only prepares source dirs and
   # commits config/parsed/active state after native success.
   if [ ! -x "$MOUNTTX" ]; then
-    loge "Profile 切換失敗：缺少 native mounttx，v1.4.74 不再用 shell 執行前景掛載交易｜path=$MOUNTTX"
+    loge "Profile 切换失败：缺少 native mounttx，v1.4.74 不再用 shell 执行前景挂载交易｜path=$MOUNTTX"
     rm -f $_sp_cleanup 2>/dev/null
     lock_release; trap - EXIT INT TERM
     return 127
   fi
   profile_native_preflight_rows "$_sp_changed_new" || {
-    loge "Profile native 預檢失敗：bindfs_shared 依賴或 policy 未就緒"
+    loge "Profile native 预检失败：bindfs_shared 依赖或 policy 未就绪"
     rm -f $_sp_cleanup 2>/dev/null
     lock_release; trap - EXIT INT TERM
     return 9
@@ -3000,7 +3000,7 @@ set_profile() {
   while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
     [ -n "$_sp_l" ] || continue
     if ! migrate_once "$_sp_u" "$_sp_s" "$_sp_l" "$_sp_migrate" "$_sp_pol"; then
-      loge "Profile 切換中止：搬移或權限修復失敗，保留原掛載｜來源=$_sp_s"
+      loge "Profile 切换中止：搬移或权限修复失败，保留原挂载｜来源=$_sp_s"
       rm -f $_sp_cleanup 2>/dev/null
       lock_release; trap - EXIT INT TERM
       return 9
@@ -3016,19 +3016,19 @@ set_profile() {
       while IFS='|' read -r _sp_n _sp_u _sp_s _sp_t _sp_l _sp_v _sp_e _sp_g _sp_pv _sp_pol _sp_create _sp_migrate; do
         [ -n "$_sp_l" ] || continue
         [ -n "$_sp_v" ] && media_scan_schedule_visible "$_sp_u" "$_sp_v" "profile_change" >/dev/null 2>&1 || true
-        logi "Profile native 切換成功｜名稱=$_sp_n｜$_sp_s → $_sp_t"
+        logi "Profile native 切换成功｜名称=$_sp_n｜$_sp_s → $_sp_t"
       done < "$_sp_changed_new"
       ;;
     10)
-      loge "Profile native 切換失敗，mounttx 已驗證 rollback 回上一個掛載狀態｜group=$_sp_group｜value=$_sp_value"
+      loge "Profile native 切换失败，mounttx 已验证 rollback 回上一个挂载状态｜group=$_sp_group｜value=$_sp_value"
       _sp_switch_fail=1; _sp_fail_rc=10
       ;;
     11)
-      loge "Profile native 切換失敗且 mounttx rollback 驗證失敗｜group=$_sp_group｜value=$_sp_value"
+      loge "Profile native 切换失败且 mounttx rollback 验证失败｜group=$_sp_group｜value=$_sp_value"
       _sp_switch_fail=1; _sp_fail_rc=11
       ;;
     *)
-      loge "Profile native transaction 異常返回｜rc=$_sp_mtx_rc｜嘗試 shell recovery rollback"
+      loge "Profile native transaction 异常返回｜rc=$_sp_mtx_rc｜尝试 shell recovery rollback"
       if profile_rollback_rows "$_sp_changed_new" "$_sp_changed_old" "$_sp_tag" "mounttx_rc_$_sp_mtx_rc"; then
         _sp_switch_fail=1; _sp_fail_rc=10
       else
@@ -3038,7 +3038,7 @@ set_profile() {
   esac
 
   if [ "$_sp_switch_fail" -ne 0 ]; then
-    notify_post "YAWAsau Mount" "Profile 切換失敗：$_sp_group → $_sp_value" "profile_failed"
+    notify_post "YAWAsau Mount" "Profile 切换失败：$_sp_group → $_sp_value" "profile_failed"
     rm -f $_sp_cleanup 2>/dev/null
     lock_release; trap - EXIT INT TERM
     return "$_sp_fail_rc"
@@ -3059,7 +3059,7 @@ set_profile() {
   # Native confwatch can observe the rename before APPLIED_HASH/config.state are
   # committed below; the marker lets service.sh wait for the profile commit and
   # skip the duplicate config transaction/notification instead of reporting
-  # "掛載完成 ... 已移除：日常/工作" after every profile switch.
+  # "挂载完成 ... 已移除：日常/工作" after every profile switch.
   _sp_marker_tmp="$PROFILE_INTERNAL_EVENT.tmp.$$"
   {
     printf 'HASH=%s\n' "$_sp_new_hash"
@@ -3098,13 +3098,13 @@ set_profile() {
   printf '%s\n' "$_sp_new_hash" > "$APPLIED_HASH.tmp.$$" 2>/dev/null && mv -f "$APPLIED_HASH.tmp.$$" "$APPLIED_HASH" 2>/dev/null
   printf '%s\n' "$_sp_new_hash" > "$PARSED_HASH.tmp.$$" 2>/dev/null && mv -f "$PARSED_HASH.tmp.$$" "$PARSED_HASH" 2>/dev/null || true
   config_state_write valid 0 profile_change "$_sp_new_hash" >/dev/null 2>&1 || true
-  logi "Profile 已快速切換｜group=$_sp_group｜$_sp_current → $_sp_value"
-  notify_post "YAWAsau Mount" "Profile 已切換：$_sp_group｜$_sp_current → $_sp_value" "profile_$_sp_group"
+  logi "Profile 已快速切换｜group=$_sp_group｜$_sp_current → $_sp_value"
+  notify_post "YAWAsau Mount" "Profile 已切换：$_sp_group｜$_sp_current → $_sp_value" "profile_$_sp_group"
   _sp_commit_gen="profile.$_sp_tag.$_sp_new_hash"
   if ns_background_generation_set "$_sp_commit_gen"; then
     profile_ns_background_sync "$_sp_changed_old" "$_sp_changed_new" "$_sp_commit_gen"
   else
-    logw "Profile 已提交，但 App namespace 背景同步 generation 建立失敗；核心 namespace 掛載保持有效"
+    logw "Profile 已提交，但 App namespace 背景同步 generation 建立失败；核心 namespace 挂载保持有效"
   fi
 
   rm -f $_sp_cleanup 2>/dev/null
@@ -3144,9 +3144,9 @@ refresh_card() {
   if [ "$_state" = invalid ]; then
     _live_part=$(grep -m1 '^partition=' "$CONF" 2>/dev/null | cut -d= -f2-)
     case "$_rc" in
-      20) _desc="錯誤｜找不到分區：${_live_part:-未設定}" ;;
-      3) _desc="錯誤｜mount.conf 語法/欄位無效（目前掛載保留最後有效設定）" ;;
-      *) _desc="錯誤｜mount.conf 套用失敗 rc=$_rc（目前掛載保留最後有效設定）" ;;
+      20) _desc="错误｜找不到分区：${_live_part:-未设定}" ;;
+      3) _desc="错误｜mount.conf 语法/栏位无效（目前挂载保留最后有效设定）" ;;
+      *) _desc="错误｜mount.conf 套用失败 rc=$_rc（目前挂载保留最后有效设定）" ;;
     esac
   else
     _live_hash=$(config_hash "$CONF" 2>/dev/null || true)
@@ -3172,7 +3172,7 @@ refresh_card() {
       fi
     fi
     if [ -z "$_dev" ]; then
-      _desc="錯誤｜找不到分區：$_part"
+      _desc="错误｜找不到分区：$_part"
     else
       _fs=$(mount_fs "$_mp"); [ -n "$_fs" ] || _fs='-'
       _total=$(wc -l < "$ACTIVE" 2>/dev/null | tr -d ' '); [ -n "$_total" ] || _total=0
@@ -3182,7 +3182,7 @@ refresh_card() {
           [ -d "$_s" ] && row_mounted "$_u" "$_s" "$_l" "$_pol" && _ok=$((_ok+1))
         done < "$ACTIVE"
       fi
-      _desc="$_fs｜掛載 $_ok/$_total｜分區=$_part｜事件即時更新"
+      _desc="$_fs｜挂载 $_ok/$_total｜分区=$_part｜事件即时更新"
     fi
   fi
   _tmp="$_prop.tmp.$$"

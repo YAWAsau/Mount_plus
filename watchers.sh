@@ -79,7 +79,7 @@ watch_worker_ready() {
   # read is a shell builtin, so /proc/self refers to this worker, not a helper.
   read -r ww_pid ww_rest < /proc/self/stat || return 1
   watch_write_record "$WATCH_RUNTIME/watch.$1.worker" "$ww_pid" || return 1
-  watch_log "[資訊] 事件監聽器就緒｜name=$1｜pid=$ww_pid"
+  watch_log "[资讯] 事件监听器就绪｜name=$1｜pid=$ww_pid"
 }
 watch_detach() {
   if [ -x /data/adb/ksu/bin/busybox ]; then
@@ -117,7 +117,7 @@ watch_supervise() {
   ws_i=0
   while watch_record_live "$WATCH_RUNTIME/watch.$ws_name.worker"; do
     [ "$ws_i" -lt 40 ] || {
-      watch_log "[錯誤] 舊監聽器尚未退出，保留紀錄並拒絕重複啟動｜name=$ws_name"
+      watch_log "[错误] 旧监听器尚未退出，保留纪录并拒绝重复启动｜name=$ws_name"
       return 1
     }
     sleep 0.05; ws_i=$((ws_i+1))
@@ -128,7 +128,7 @@ watch_supervise() {
   ws_stop=0; ws_child=; ws_sleep=; ws_delay=1
   trap '' HUP
   trap 'ws_stop=1; if [ -n "$ws_child" ]; then kill -TERM -- "-$ws_child" 2>/dev/null || kill -TERM "$ws_child" 2>/dev/null || true; fi; [ -z "$ws_sleep" ] || kill -TERM "$ws_sleep" 2>/dev/null || true' TERM INT
-  watch_log "[資訊] 事件監聽管理程序啟動｜name=$ws_name｜pid=$ws_pid"
+  watch_log "[资讯] 事件监听管理程序启动｜name=$ws_name｜pid=$ws_pid"
   while [ "$ws_stop" = 0 ] && [ ! -e "$WATCH_STOP" ]; do
     rm -f "$WATCH_RUNTIME/watch.$ws_name.worker"
     ws_begin=$(date +%s)
@@ -141,7 +141,7 @@ watch_supervise() {
     case "$ws_name:$ws_rc" in
       user0prop:0|user0file:0)
         cat /proc/sys/kernel/random/boot_id > "$WATCH_RUNTIME/watch.$ws_name.done"
-        watch_log "[資訊] 一次性監聽已完成｜name=$ws_name"
+        watch_log "[资讯] 一次性监听已完成｜name=$ws_name"
         break ;;
     esac
     # Only event readers remain in this group. Recoveries/mount transactions
@@ -152,7 +152,7 @@ watch_supervise() {
     [ ! -e "$WATCH_STOP" ] || break
     ws_end=$(date +%s)
     [ "$((ws_end-ws_begin))" -lt 60 ] || ws_delay=1
-    watch_log "[警告] 事件監聽器退出，將重啟｜name=$ws_name｜rc=$ws_rc｜delay=${ws_delay}s"
+    watch_log "[警告] 事件监听器退出，将重启｜name=$ws_name｜rc=$ws_rc｜delay=${ws_delay}s"
     sleep "$ws_delay" 9>&- &
     ws_sleep=$!
     wait "$ws_sleep" 2>/dev/null || true
@@ -162,13 +162,13 @@ watch_supervise() {
   rm -f "$WATCH_RUNTIME/watch.$ws_name.worker" "$WATCH_RUNTIME/watch.$ws_name.supervisor"
   ws_saved=$(cat "$WATCH_RUNTIME/$ws_name.pid" 2>/dev/null)
   [ "$ws_saved" != "$ws_pid" ] || rm -f "$WATCH_RUNTIME/$ws_name.pid"
-  watch_log "[資訊] 事件監聽管理程序結束｜name=$ws_name"
+  watch_log "[资讯] 事件监听管理程序结束｜name=$ws_name"
 }
 watch_start_all() {
   local wa_name wa_i wa_failed
   if [ "$1" = boot_completed ] && [ -e "$WATCH_STOP" ]; then return 0; fi
   [ -x /system/bin/flock ] && [ -x /system/bin/setsid ] || {
-    watch_log '[錯誤] 缺少 flock/setsid，無法啟動監聽管理程序'
+    watch_log '[错误] 缺少 flock/setsid，无法启动监听管理程序'
     return 1
   }
   exec 6>"$WATCH_RUNTIME/watchers.control.lock" || return 1
@@ -186,7 +186,7 @@ watch_start_all() {
       sleep 0.05; wa_i=$((wa_i+1))
     done
     if ! watch_ready "$wa_name"; then
-      watch_log "[錯誤] 事件監聽器啟動確認逾時｜name=$wa_name"
+      watch_log "[错误] 事件监听器启动确认逾时｜name=$wa_name"
       wa_failed=1
     fi
   done
@@ -200,7 +200,7 @@ watch_stop_all() (
   # Serialize with actual mount commits. A check for the directory alone has
   # a check/use race with a newly arriving unlock/config event.
   if ! lock_acquire; then
-    watch_log '[警告] 掛載交易仍在進行，暫不停止事件監聽器'
+    watch_log '[警告] 挂载交易仍在进行，暂不停止事件监听器'
     return 4
   fi
   trap 'lock_release' EXIT
@@ -220,7 +220,7 @@ watch_stop_all() (
     [ -n "$wt_alive" ] || return 0
     sleep 0.05; wt_i=$((wt_i+1))
   done
-  watch_log '[警告] 監聽管理程序仍在結束中，保留 PID 紀錄供診斷'
+  watch_log '[警告] 监听管理程序仍在结束中，保留 PID 纪录供诊断'
   return 1
 )
 
