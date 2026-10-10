@@ -2674,7 +2674,6 @@ apply_reload() {
       if [ -n "$_v" ]; then
         if visible_probe "$_u" "$_s" "$_v"; then
           logi "手機儲存已可看到掛載｜名稱=$_n｜User=$_u｜路徑=$_v"
-          media_scan_schedule_visible "$_u" "$_v" "$_reason" >/dev/null 2>&1 || true
           logi "掛載正常｜名稱=$_n｜User=$_u｜$_s → $_t"
         else
           logw "掛載已完成但手機儲存可見性驗證失敗｜名稱=$_n｜User=$_u｜目標=$_v"; _fail=$((_fail+1))
@@ -2696,11 +2695,9 @@ apply_reload() {
     parsed_publish_dir "$_txn_parsed" "$_cfg_hash" >/dev/null 2>&1 || true
     [ -n "$_cfg_hash" ] && printf '%s\n' "$_cfg_hash" > "$APPLIED_HASH.tmp.$$" 2>/dev/null && mv -f "$APPLIED_HASH.tmp.$$" "$APPLIED_HASH" 2>/dev/null
     config_state_write valid 0 "$_reason" "$_cfg_hash" "$_defer" >/dev/null 2>&1 || true
-    case "$_reason" in
-      boot_initial|media_apply|user*_unlocked|user0_propwait|user0_filewatch|user_*_storage_ready_retry*)
-        media_scan_schedule_initial_roots "$_reason" >/dev/null 2>&1 || true
-        ;;
-    esac
+    # Publish source identities first. A pre-commit scan would fail the
+    # mapping guard after inode replacement and never be retried.
+    media_scan_schedule_initial_roots "$_reason" >/dev/null 2>&1 || true
     if fast_foreground_reason "$_reason"; then
       mount_active_background_sync "$ACTIVE" "$_reason" >/dev/null 2>&1 || true
     fi
