@@ -174,3 +174,16 @@ su -c 'sh /data/adb/modules/dcimswitch/control.sh reload'
 本模組會執行 root 掛載操作，錯誤設定可能導致目錄不可見、App 掃描異常或掛載點殘留。模組預設不覆蓋既有 `mount.conf`，設定錯誤時會保留最後有效設定，降低資料可見性被破壞的風險。
 
 建議先用少量掛載點測試，確認 WebUI、通知與 App 可見性正常後再擴展設定。
+
+## v1.4.93 修正與驗證範圍
+
+- 引用 [ghjjvbjj 的 PR #3](https://github.com/YAWAsau/Mount_plus/pull/3) 的 WebUI 繁簡切換與 GitHub Actions 建置流程，保留繁體文件與 Shell；未加入自動改寫 main 的繁轉簡工作流。補上操作進行中切換語言與 localStorage 不可用的回歸測試。
+- sourcewatch 以 inotify 監聽來源與父路徑的身分變更。來源刪除後不由監聽器立即重建；同一路徑恢復時要求重掛，父路徑替換與設定清單替換也會重新建立監聽。沒有固定間隔健康輪詢。
+- 手動重掛不再因設定 hash 相同提早成功。核心 bind 舊 inode 以已保存的來源身分確認後卸載，避免移除不屬於模組的掛載。
+- WebUI 狀態會核對來源身分與檔案可見性；來源不可寫而無法驗證時保守回報未通過，不再以目標目錄存在冒充正常。
+- 媒體索引：來源重掛的空窗期不掃描底層空目錄；開機只針對掛載的媒體目錄排程，不再安排整個使用者儲存根目錄。發送前驗證 MediaProvider namespace 的映射。廣播送出不代表索引完成。
+- 已通過 Android 17 隔離測試：來源／父目錄刪除重建、設定清單替換、內容寫入不觸發重掛、核心 bind 舊 inode 卸載與新來源映射、未知掛載保留、探測失敗、掃描條件及 mksh/ash 語法；WebUI Node 回歸測試通過。
+- 尚未完成新版整機重開機與 Salt Player／相簿索引持久性實測。系統自行發起的掃描以及 App 私有音樂庫不受模組完全控制，不能保證既有 MediaStore ID、收藏或播放清單不變。
+- 新增 sourcewatch、重建 mounttx，使用 NDK r30 30.0.16248370 / API 28 / ARM64 / 16 KiB。其餘 bin 沿用已發布 v1.4.92 成品，未重編 SMB。
+
+安裝新版後請重開機，讓 sourcewatch 加入既有事件監聽管理程序。BUILD_KIT 為完整來源與建置配方，不是刷入包。

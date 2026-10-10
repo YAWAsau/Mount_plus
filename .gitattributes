@@ -1,0 +1,12 @@
+*.sh   text eol=lf
+*.prop text eol=lf
+*.json text eol=lf
+*.rule text eol=lf
+*.md   text eol=lf
+*.js text eol=lf
+*.html text eol=lf
+*.c text eol=lf
+*.ps1 text eol=lf
+*.yml text eol=lf
+*.cjs text eol=lf
+*.py text eol=lf

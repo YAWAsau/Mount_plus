@@ -47,7 +47,7 @@ if [ ! -e "$MARK" ]; then
     _i=0; while [ ! -e "$MARK" ] && [ "$_i" -lt 40 ]; do sleep 0.05; _i=$((_i+1)); done
   fi
 fi
-printf '========== YAWAsau Mount v1.4.92｜本次開機日誌 ==========\n' >> "$LOG" 2>/dev/null
+printf '========== YAWAsau Mount v1.4.93｜本次開機日誌 ==========\n' >> "$LOG" 2>/dev/null
 log '[資訊] 掛載服務啟動'
 log "[資訊] 目前生效設定｜$CONF"
 log "[資訊] 模組內建模板不會被監聽｜$MODDIR/mount.conf / mount.conf.default / mount.conf.example"
@@ -338,6 +338,18 @@ recover_unlocked_users(){
   return "$_ru_failed"
 }
 
+source_watch_loop(){
+  "$MODDIR/bin/sourcewatch" "$RUNTIME/parsed/mounts.desired" | while IFS= read -r _source_event; do
+    [ "$_source_event" = changed ] || continue
+    # Bounded retries cover a transaction holding the reload lock; no idle poll.
+    for _source_delay in 0 1 2 4; do
+      [ "$_source_delay" = 0 ] || sleep "$_source_delay"
+      control_run reload source_event >/dev/null 2>&1 && break
+    done
+  done
+  return 1
+}
+
 userstate_watch_loop(){
   command -v logcat >/dev/null 2>&1 || return 1
   recover_unlocked_users watcher_start >/dev/null 2>&1 &
@@ -429,6 +441,7 @@ case "${1:-boot}" in
     watch_name_valid "$2" || exit 2
     case "$2" in
       confwatch) [ -x "$CONFWATCH" ] || exit 127 ;;
+      sourcewatch) [ -x "$MODDIR/bin/sourcewatch" ] || exit 127 ;;
       userstate) command -v logcat >/dev/null 2>&1 || exit 127 ;;
       user0prop) [ -x "$PROPWAIT" ] || exit 127 ;;
       user0file) [ -x "$FILEWATCH" ] || exit 127 ;;
@@ -436,6 +449,7 @@ case "${1:-boot}" in
     watch_worker_ready "$2" || exit 1
     case "$2" in
       confwatch) config_watch_loop ;;
+      sourcewatch) source_watch_loop ;;
       userstate) userstate_watch_loop ;;
       user0prop) user0_prop_once ;;
       user0file) user0_file_once ;;

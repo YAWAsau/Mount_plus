@@ -14,7 +14,7 @@ $ModuleRoot = [System.IO.Path]::GetFullPath($ModuleRoot)
 if ([string]::IsNullOrWhiteSpace($NativeOut)) { $NativeOut = Join-Path $ModuleRoot 'native_out' }
 $NativeOut = [System.IO.Path]::GetFullPath($NativeOut)
 if ([string]::IsNullOrWhiteSpace($OutZip)) {
-    $OutZip = Join-Path (Split-Path -Parent $ModuleRoot) 'YAWAsau_Mount_v1.4.92_event_recovery_ndkr30_api28_20261006.zip'
+    $OutZip = Join-Path (Split-Path -Parent $ModuleRoot) 'YAWAsau_Mount_v1.4.93_source_recovery_ndkr30_api28_20261011.zip'
 }
 
 function Fail([string]$m) { throw $m }
@@ -61,7 +61,8 @@ $mountFuse3 = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mount.fuse3') (Joi
 $mountFusefs = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mount_fusefs') (Join-Path $NativeOut 'native_out\bin\mount_fusefs') 'native_out\bin\mount_fusefs'
 $mounttx = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mounttx') (Join-Path $NativeOut 'native_out\bin\mounttx') 'native_out\bin\mounttx'
 $confwatch = ResolveNativeOutFile (Join-Path $NativeOut 'bin\confwatch') (Join-Path $NativeOut 'native_out\bin\confwatch') 'native_out\bin\confwatch'
-$Stage = Join-Path $ModuleRoot '.pack_stage_v1492'
+$sourcewatch = ResolveNativeOutFile (Join-Path $NativeOut 'bin\sourcewatch') (Join-Path $NativeOut 'native_out\bin\sourcewatch') 'sourcewatch'
+$Stage = Join-Path $ModuleRoot '.pack_stage_v1493'
 if (-not ([IO.Path]::GetFullPath($Stage).StartsWith($ModuleRoot.TrimEnd([char]92) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase))) { Fail 'Pack stage is outside ModuleRoot' }
 if (Test-Path -LiteralPath $Stage) { Remove-Item -LiteralPath $Stage -Recurse -Force }
 New-Item -ItemType Directory -Path $Stage -Force | Out-Null
@@ -86,6 +87,7 @@ EnsureDir (Join-Path $Stage 'bin')
 Copy-Item -LiteralPath $bindfs -Destination (Join-Path $Stage 'bin\bindfs') -Force
 Copy-Item -LiteralPath $mountFuse3 -Destination (Join-Path $Stage 'bin\mount.fuse3') -Force
 Copy-Item -LiteralPath $mountFusefs -Destination (Join-Path $Stage 'bin\mount_fusefs') -Force
+Copy-Item -LiteralPath $sourcewatch -Destination (Join-Path $Stage 'bin\sourcewatch') -Force
 Copy-Item -LiteralPath $mounttx -Destination (Join-Path $Stage 'bin\mounttx') -Force
 Copy-Item -LiteralPath $confwatch -Destination (Join-Path $Stage 'bin\confwatch') -Force
 # v1.4.55: libfuse3 is linked statically into bindfs; do not bundle libs/libfuse3.so or lib/libfuse3.so.
@@ -114,6 +116,11 @@ Get-ChildItem -LiteralPath (Join-Path $Stage 'bin') -Recurse -File | ForEach-Obj
     "$hash  $rel"
 } | Sort-Object | Set-Content -LiteralPath (Join-Path $Stage 'NATIVE_SHA256SUMS.txt') -Encoding ASCII
 
+Get-ChildItem -LiteralPath $Stage -Recurse -File | Where-Object { $_.Name -ne 'RUNTIME_SHA256SUMS.txt' } | ForEach-Object {
+    $rel = RelPathCompat $Stage $_.FullName
+    "$((Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant())  $rel"
+} | Sort-Object | Set-Content -LiteralPath (Join-Path $Stage 'RUNTIME_SHA256SUMS.txt') -Encoding ASCII
+
 if (Test-Path -LiteralPath $OutZip) { Remove-Item -LiteralPath $OutZip -Force }
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -138,6 +145,7 @@ try {
 $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $OutZip).Hash.ToLowerInvariant()
 Write-Host "[OK] module package created: $OutZip"
 Write-Host "SHA256=$hash"
+"$hash  $([IO.Path]::GetFileName($OutZip))" | Set-Content -LiteralPath "$OutZip.sha256" -Encoding ASCII
 Write-Host 'Bundled runtime paths:'
 Write-Host '  bin/bindfs -> /data/adb/modules/dcimswitch/bin/bindfs'
 Write-Host '  libfuse3.so: not bundled; statically linked into bin/bindfs'

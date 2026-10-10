@@ -1208,6 +1208,14 @@ Run-Checked -Title 'build native mounttx profile/source-refresh transaction help
     "-Wl,-z,common-page-size=$PageSize",
     '-o',$mounttxOut,$mounttxSrc
 )
+$sourcewatchOut = Join-Path $outPath 'bin\sourcewatch'
+Run-Checked -Title 'build source identity event watcher' -Exe $clangExe -ArgList @(
+    "--target=$target", "--sysroot=$sysroot", '-std=gnu11','-Wall','-Wextra','-Werror','-O2','-fPIE','-pie',
+    "-Wl,-z,max-page-size=$PageSize", "-Wl,-z,common-page-size=$PageSize",
+    '-o',$sourcewatchOut,(Join-Path $RootDir 'source\sourcewatch.c')
+)
+Run-Checked -Title 'strip sourcewatch' -Exe $strip -ArgList @('--strip-all', $sourcewatchOut)
+Verify-NativeArtifact -Binary $sourcewatchOut -Mode 'android-exe'
 Run-Checked -Title 'strip native mounttx helper' -Exe $strip -ArgList @('--strip-all', $mounttxOut)
     Verify-NativeArtifact -Binary $mounttxOut -Mode 'android-exe'
 
@@ -1311,7 +1319,7 @@ $buildInfo = [ordered]@{
     android_api_target = $Api
     target = "aarch64-linux-android$Api"
     load_alignment = $PageSize
-    rebuilt = @('bindfs (libfuse3 linked statically)', 'confwatch (static, no libc)', 'mount.fuse3', 'mount_fusefs (alias)', 'mounttx')
+    rebuilt = @('bindfs (libfuse3 linked statically)', 'confwatch (static, no libc)', 'mount.fuse3', 'mount_fusefs (alias)', 'mounttx', 'sourcewatch')
     retained_from_input = @('filewatch', 'propwait')
     magiskpolicy = $(if ($BuildMagiskPolicy) { 'rebuilt with upstream ONDK' } else { 'retained from input; not an NDK r30 rebuild' })
     compatibility = 'API target and ELF checks do not replace Android device runtime tests.'

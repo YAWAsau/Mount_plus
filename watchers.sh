@@ -8,7 +8,7 @@ watch_log() {
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$WATCH_RUNTIME/service.log"
 }
 watch_name_valid() {
-  case "$1" in confwatch|userstate|user0prop|user0file) return 0 ;; *) return 1 ;; esac
+  case "$1" in confwatch|sourcewatch|userstate|user0prop|user0file) return 0 ;; *) return 1 ;; esac
 }
 watch_with_fd() {
   # Android mksh marks exec-opened descriptors close-on-exec. Explicitly
@@ -176,7 +176,7 @@ watch_start_all() {
   if [ "$1" = boot_completed ] && [ -e "$WATCH_STOP" ]; then return 0; fi
   rm -f "$WATCH_STOP"
   wa_failed=0
-  for wa_name in confwatch userstate user0prop user0file; do
+  for wa_name in confwatch sourcewatch userstate user0prop user0file; do
     watch_ready "$wa_name" && continue
     watch_detach "$WATCH_MODDIR/watchers.sh" supervise "$wa_name" 6>&- </dev/null >> "$WATCH_RUNTIME/watchers.stderr.log" 2>&1 &
     # Bounded startup handshake only; this loop is not a resident health poll.
@@ -206,14 +206,14 @@ watch_stop_all() (
   trap 'lock_release' EXIT
   trap 'exit 1' INT TERM
   : > "$WATCH_STOP" || return 1
-  for wt_name in confwatch userstate user0prop user0file; do
+  for wt_name in confwatch sourcewatch userstate user0prop user0file; do
     watch_signal_record "$WATCH_RUNTIME/watch.$wt_name.supervisor"
     watch_signal_record "$WATCH_RUNTIME/watch.$wt_name.worker" group
   done
   wt_i=0
   while [ "$wt_i" -lt 40 ]; do
     wt_alive=
-    for wt_name in confwatch userstate user0prop user0file; do
+    for wt_name in confwatch sourcewatch userstate user0prop user0file; do
       watch_record_live "$WATCH_RUNTIME/watch.$wt_name.supervisor" && wt_alive=1
       watch_record_live "$WATCH_RUNTIME/watch.$wt_name.worker" && wt_alive=1
     done

@@ -378,6 +378,26 @@ static bool is_any_mount_here(const char *dst) {
     return mount_entry_at(dst, NULL, 0, NULL, 0);
 }
 
+/* Match the saved identity before detaching a replaced source's old bind. */
+static bool saved_source_matches_lower(const Row *r) {
+    if (!g_opt.runtime || !is_any_mount_here(r->lower)) return false;
+    char path[PATH_MAX], line[MAX_LINE], actual[128]; struct stat st;
+    if (stat(r->lower,&st)!=0) return false;
+    snprintf(actual,sizeof(actual),"%llu:%llu",(unsigned long long)st.st_dev,(unsigned long long)st.st_ino);
+    snprintf(path,sizeof(path),"%s/active_source_state.tsv",g_opt.runtime);
+    FILE *f=fopen(path,"r"); if (!f) return false;
+    bool ok=false;
+    while (fgets(line,sizeof(line),f)) {
+        char *rest=line,*v[5];
+        for (int i=0;i<5;i++) v[i]=strsep(&rest,"|");
+        if (!v[4]) continue;
+        v[4][strcspn(v[4],"\r\n")]=0;
+        if (atoi(v[0])==r->user && !strcmp(v[1],r->lower) && !strcmp(v[2],r->src) &&
+            !strcmp(v[3],r->policy) && !strcmp(v[4],actual)) { ok=true;break; }
+    }
+    fclose(f);return ok;
+}
+
 static int unmount_pid_if_ours(pid_t pid, const Row *r) {
     int orig = -1;
     int rc = 0;
@@ -387,7 +407,7 @@ static int unmount_pid_if_ours(pid_t pid, const Row *r) {
             if (umount2(r->lower, 0) != 0 && umount2(r->lower, MNT_DETACH) != 0) rc = -1;
         }
     } else {
-        if (stat_same(r->src, r->lower)) {
+        if (stat_same(r->src, r->lower) || saved_source_matches_lower(r)) {
             if (umount2(r->lower, 0) != 0 && umount2(r->lower, MNT_DETACH) != 0) rc = -1;
         }
     }
@@ -407,7 +427,7 @@ static int unmount_core(const Row *r) {
     if (setns_pid_restore(1, &orig) == 0) {
         if (strcmp(r->policy, "bindfs_shared") == 0) {
             if (is_bindfs_mounted_here(r->lower)) (void)umount2(r->lower, MNT_DETACH);
-        } else if (stat_same(r->src, r->lower)) {
+        } else if (stat_same(r->src, r->lower) || saved_source_matches_lower(r)) {
             (void)umount2(r->lower, MNT_DETACH);
         }
         restore_ns(orig);
@@ -622,7 +642,7 @@ static bool test_visible_once(const Row *r) {
     int plen = snprintf(probe, sizeof(probe), "%s/.yawasau_mounttx_probe.%ld.%ld.%d", r->src, (long)ts.tv_sec, (long)ts.tv_nsec, (int)getpid());
     if (plen < 0 || plen >= (int)sizeof(probe)) return false;
     int fd = open(probe, O_CREAT | O_WRONLY | O_TRUNC | O_CLOEXEC, 0600);
-    if (fd < 0) return path_is_dir(r->visible);
+    if (fd < 0) return false;
     close(fd);
     const char *base = strrchr(probe, '/');
     base = base ? base + 1 : probe;

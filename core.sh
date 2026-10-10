@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.92-event-recovery-ndkr30-api28
+# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.93-event-recovery-ndkr30-api28
 # Internal library only. mount.conf is parsed as data; it is never sourced.
 
 MODDIR=${MODDIR:-${0%/*}}
@@ -49,7 +49,7 @@ CONFIG_STATE="$RUNTIME/config.state"
 APPLIED_HASH="$RUNTIME/config.applied.cksum"
 PROFILE_INTERNAL_EVENT="$RUNTIME/profile_internal.conf_event"
 NS_BG_GEN="$RUNTIME/ns_background.generation"
-MODULE_VERSION=v1.4.92-event-recovery-ndkr30-api28-20261006
+MODULE_VERSION=v1.4.93-source-recovery-ndkr30-api28-20261011
 mkdir -p "$RUNTIME" "$PARSED" 2>/dev/null
 DELIM='|'
 
@@ -488,7 +488,7 @@ bindfs_kill_target() {
 refresh_stale_source_mount_if_needed() {
   _rssm_n=$1; _rssm_u=$2; _rssm_s=$3; _rssm_t=$4; _rssm_l=$5; _rssm_v=$6; _rssm_pol=$7; _rssm_create=${8:-1}; _rssm_migrate=${9:-none}
   SOURCE_REFRESH_NATIVE_DONE=0
-  if row_source_needs_refresh "$_rssm_u" "$_rssm_s" "$_rssm_l" "$_rssm_pol"; then
+  if ! row_mounted "$_rssm_u" "$_rssm_s" "$_rssm_l" "$_rssm_pol" || row_source_needs_refresh "$_rssm_u" "$_rssm_s" "$_rssm_l" "$_rssm_pol" || { [ -n "$_rssm_v" ] && ! visible_probe "$_rssm_u" "$_rssm_s" "$_rssm_v"; }; then
     _rssm_cur=$(source_sig "$_rssm_s" 2>/dev/null || true)
     _rssm_prev=$(active_source_sig_lookup "$_rssm_u" "$_rssm_l" "$_rssm_s" "$_rssm_pol" 2>/dev/null || true)
     logw "來源目錄 inode 已變更或缺少基準，強制重建掛載｜名稱=$_rssm_n｜User=$_rssm_u｜來源=$_rssm_s｜目標=$_rssm_t｜policy=$_rssm_pol｜old=${_rssm_prev:-none}｜new=${_rssm_cur:-unknown}｜mode=native-source-refresh"
@@ -2065,17 +2065,47 @@ media_scan_visible_path() {
   return 1
 }
 
+media_scan_mapping_ready() (
+  local u path n ru src target lower vis enabled group profile policy rest canonical before pid
+  u=$1; path=$2
+  [ -f "$ACTIVE" ] || return 1
+  while IFS='|' read -r n ru src target lower vis enabled group profile policy rest; do
+    [ "$ru" = "$u" ] || continue
+    canonical=$(media_scan_visible_path "$ru" "$vis") || continue
+    [ "$canonical" = "$path" ] || continue
+    before=$(source_sig "$src") || return 1
+    row_source_needs_refresh "$ru" "$src" "$lower" "$policy" && return 1
+    row_mounted "$ru" "$src" "$lower" "$policy" || return 1
+    # Check the namespace used by the scanner, not merely the caller's view.
+    pid=$(ensure_media_pid "$ru") || return 1
+    [ -n "$pid" ] || return 1
+    nsenter -t "$pid" -m -- sh -c 'MODDIR=$1; . "$1/core.sh"; visible_probe "$2" "$3" "$4"' sh "$MODDIR" "$ru" "$src" "$canonical" || return 1
+    [ "$before" = "$(source_sig "$src")" ]
+    return $?
+  done < "$ACTIVE"
+  return 1
+)
+
 media_scan_broadcast() {
+  local _msb_u _msb_path _msb_reason _msb_rc
   _msb_u=$1; _msb_path=$2; _msb_reason=${3:-mount}
   case "$_msb_u" in ''|*[!0-9]*) return 2;; esac
   valid_safe_abs "$_msb_path" || return 2
   [ -e "$_msb_path" ] || { logw "媒體掃描廣播略過：路徑不存在｜User=$_msb_u｜路徑=$_msb_path｜原因=$_msb_reason"; return 1; }
+  case "$_msb_reason" in
+    unmount_restore_source_refresh) return 0 ;;
+    unmount_restore_*) ;;
+    *) media_scan_mapping_ready "$_msb_u" "$_msb_path" || {
+      logw "媒體索引延後：目前來源映射尚未通過驗證｜User=$_msb_u｜路徑=$_msb_path"
+      return 1
+    } ;;
+  esac
   if command -v am >/dev/null 2>&1; then
     am broadcast --user "$_msb_u" -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$_msb_path" >/dev/null 2>&1 \
       || am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d "file://$_msb_path" >/dev/null 2>&1
     _msb_rc=$?
     if [ "$_msb_rc" -eq 0 ]; then
-      logi "已通知媒體掃描｜User=$_msb_u｜路徑=$_msb_path｜原因=$_msb_reason"
+      logi "已送出媒體掃描請求（非完成確認）｜User=$_msb_u｜路徑=$_msb_path｜原因=$_msb_reason"
       return 0
     fi
     logw "媒體掃描廣播失敗｜User=$_msb_u｜路徑=$_msb_path｜原因=$_msb_reason｜rc=$_msb_rc"
@@ -2098,23 +2128,23 @@ media_scan_schedule_path() {
 }
 
 media_scan_schedule_visible() {
+  local _mssv_u _mssv_visible _mssv_reason _mssv_path
   _mssv_u=$1; _mssv_visible=$2; _mssv_reason=${3:-mount}
+  [ "$_mssv_reason" != unmount_restore_source_refresh ] || return 0
   _mssv_path=$(media_scan_visible_path "$_mssv_u" "$_mssv_visible" 2>/dev/null || true)
   [ -n "$_mssv_path" ] || return 0
   media_scan_schedule_path "$_mssv_u" "$_mssv_path" "$_mssv_reason" 1
 }
 
 media_scan_schedule_user_root_if_media_active() {
+  local _msr_u _msr_reason _msr_n _msr_ru _msr_s _msr_t _msr_l _msr_v _msr_rest
   _msr_u=$1; _msr_reason=${2:-initial}
-  case "$_msr_u" in ''|*[!0-9]*) return 0;; esac
   [ -f "$ACTIVE" ] || return 0
-  _msr_has=0
-  while IFS='|' read -r _msr_n _msr_ru _msr_s _msr_t _msr_l _msr_v _msr_e _msr_g _msr_pv _msr_pol _msr_create _msr_migrate; do
+  # Reconcile only mounted media directories, never scan the whole user root.
+  while IFS='|' read -r _msr_n _msr_ru _msr_s _msr_t _msr_l _msr_v _msr_rest; do
     [ "$_msr_ru" = "$_msr_u" ] || continue
-    media_scan_visible_path "$_msr_u" "$_msr_v" >/dev/null 2>&1 && { _msr_has=1; break; }
+    media_scan_schedule_visible "$_msr_u" "$_msr_v" "$_msr_reason"
   done < "$ACTIVE"
-  [ "$_msr_has" -eq 1 ] || return 0
-  media_scan_schedule_path "$_msr_u" "/storage/emulated/$_msr_u" "$_msr_reason" 1
 }
 
 media_scan_schedule_initial_roots() {
@@ -2126,9 +2156,10 @@ media_scan_schedule_initial_roots() {
 }
 
 visible_probe() {
+  local _u _src _vis _seq _probe _base _rel _pid
   _u=$1; _src=$2; _vis=$3; [ -n "$_vis" ] || return 0
   _seq=".$$.$(date +%s 2>/dev/null).$RANDOM"; _probe="$_src/.yawasau_probe$_seq"
-  : > "$_probe" 2>/dev/null || { [ -d "$_vis" ] && return 0; return 1; }
+  ( : > "$_probe" ) 2>/dev/null || return 1
   _base=${_probe##*/}; _rel=${_vis%/}/$_base
   if [ -e "$_rel" ]; then rm -f "$_probe"; return 0; fi
   _pid=$(ensure_media_pid "$_u" 2>/dev/null || true)
@@ -2360,7 +2391,7 @@ apply_reload() {
       logw "設定內容未變但偵測到來源 inode 變更，仍執行掛載重建｜原因=$_reason"
     else
       case "$_reason" in
-        config_event|config_event_retry|manual|webui|profile_prerepair)
+        config_event|config_event_retry|profile_prerepair)
           config_state_write valid 0 "duplicate_$_reason" "$_pre_hash" >/dev/null 2>&1 || true
           return 0
           ;;
@@ -2388,7 +2419,7 @@ apply_reload() {
   }
 
   case "$_reason" in
-    config_event|config_event_retry|manual|webui|profile_prerepair)
+    config_event|config_event_retry|profile_prerepair)
       _applied_after_lock=$(cat "$APPLIED_HASH" 2>/dev/null)
       if [ -n "$_cfg_hash" ] && [ "$_cfg_hash" = "$_applied_after_lock" ] && parsed_cache_matches_hash "$_cfg_hash" && [ "$(config_state_value STATE)" = valid ]; then
         if active_sources_need_refresh_for_file "$ACTIVE"; then
@@ -2465,7 +2496,7 @@ apply_reload() {
 
   _applied_hash=$(cat "$APPLIED_HASH" 2>/dev/null)
   case "$_reason" in
-    config_event|config_event_retry|profile_change|manual|webui|profile_prerepair)
+    config_event|config_event_retry|profile_change|profile_prerepair)
       if [ -n "$_cfg_hash" ] && [ "$_cfg_hash" = "$_applied_hash" ]; then
         if active_sources_need_refresh_for_file "$ACTIVE"; then
           logw "設定內容未變但偵測到來源 inode 變更，仍執行掛載重建｜原因=$_reason"
@@ -2603,7 +2634,7 @@ apply_reload() {
     [ -n "$_l" ] || continue
     row_scope_match "$_apply_scope" "$_u" || continue
     _row=$(printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s' "$_n" "$_u" "$_s" "$_t" "$_l" "$_v" "$_e" "$_g" "$_pv" "$_pol" "$_create" "$_migrate")
-    if [ -f "$ACTIVE" ] && grep -Fqx "$_row" "$ACTIVE" 2>/dev/null && row_mounted "$_u" "$_s" "$_l" "$_pol"; then
+    if [ -f "$ACTIVE" ] && grep -Fqx "$_row" "$ACTIVE" 2>/dev/null; then
       if refresh_stale_source_mount_if_needed "$_n" "$_u" "$_s" "$_t" "$_l" "$_v" "$_pol" "$_create" "$_migrate"; then
         :
       else
@@ -3130,8 +3161,10 @@ status_json() {
     _active=false; _mounted=false; _visible=false; _selected=true
     if [ -n "$_g" ]; then _sel=$(awk -F'|' -v g="$_g" '$1==g{print $2;exit}' "$PARSED/profiles"); [ "$_sel" = "$_pv" ] || _selected=false; fi
     [ "$_e" = 1 ] && [ "$_selected" = true ] && _active=true
-    if [ -d "$_s" ] && row_mounted "$_u" "$_s" "$_l" "$_pol"; then _mounted=true; fi
-    if [ -z "$_v" ]; then _visible=$_mounted; elif [ "$_mounted" = true ] && [ -d "$_v" ]; then _visible=true; else _pid=$(media_cache_pid "$_u" 2>/dev/null || true); [ -n "$_pid" ] && nsenter -t "$_pid" -m -- test -d "$_v" >/dev/null 2>&1 && _visible=true; fi
+    if [ -d "$_s" ] && ! row_source_needs_refresh "$_u" "$_s" "$_l" "$_pol" && row_mounted "$_u" "$_s" "$_l" "$_pol"; then _mounted=true; fi
+    if [ "$_mounted" = true ]; then
+      if [ -z "$_v" ] || visible_probe "$_u" "$_s" "$_v"; then _visible=true; fi
+    fi
     printf '{"name":"%s","user":%s,"source":"%s","target":"%s","enabled":%s,"active":%s,"mounted":%s,"visible":%s,"group":"%s","profile":"%s","policy":"%s","create":%s,"migrate":"%s"}' "$(json_escape "$_n")" "$_u" "$(json_escape "$_s")" "$(json_escape "$_t")" "$([ "$_e" = 1 ] && echo true || echo false)" "$_active" "$_mounted" "$_visible" "$(json_escape "$_g")" "$(json_escape "$_pv")" "$(json_escape "$_pol")" "$([ "$_create" = 1 ] && echo true || echo false)" "$(json_escape "$_migrate")"
   done < "$PARSED/mounts.all"; fi
   printf ']}'

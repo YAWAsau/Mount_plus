@@ -1,0 +1,6 @@
+native_out/
+native_work/
+.pack_stage*/
+.dex_extract/
+YAWAsau_Mount_*.zip*
+__pycache__/

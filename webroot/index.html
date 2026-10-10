@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -13,40 +13,41 @@
       <div class="eyebrow"><svg class="brand-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m12 3 9 5-9 5-9-5 9-5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>YAWAsau Mount</div>
       <div class="current-row">
         <span id="dot" class="dot"></span>
-        <div><div class="muted">目前狀態</div><div id="current" class="current">讀取中…</div></div>
+        <div><div class="muted" data-i18n="currentState">当前状态</div><div id="current" class="current">讀取中…</div></div>
       </div>
       <div id="source" class="mono source">-</div>
-      <div id="health" class="hint">正在檢查 mount.conf 與掛載狀態</div>
+      <div id="health" class="hint">正在检查 mount.conf 与挂载状态</div>
     </section>
 
     <section class="card details">
-      <div class="kv"><span>檔案系統</span><b id="fs-state">-</b></div>
-      <div class="kv"><span>分區裝置</span><b id="device-state" class="mono">-</b></div>
-      <div class="kv"><span>主掛載點</span><b id="root-state" class="mono">-</b></div>
+      <div class="kv"><span data-i18n="fsType">文件系统</span><b id="fs-state">-</b></div>
+      <div class="kv"><span data-i18n="device">分区设备</span><b id="device-state" class="mono">-</b></div>
+      <div class="kv"><span data-i18n="mountPoint">主挂载点</span><b id="root-state" class="mono">-</b></div>
       <div class="kv"><span>mount.conf</span><b id="conf-state" class="mono">-</b></div>
-      <div class="kv"><span>設定監聽</span><b>事件驅動</b></div>
+      <div class="kv"><span data-i18n="configWatch">设置监听</span><b data-i18n="eventDriven">事件驱动</b></div>
     </section>
 
     <section id="mount-card" class="card details">
-      <div class="row-title">掛載項目</div>
-      <div id="mount-list"><div class="kv"><span>讀取中…</span><b>-</b></div></div>
+      <div class="row-title" data-i18n="mountItems">挂载项目</div>
+      <div id="mount-list"><div class="kv"><span data-i18n="loading">读取中…</span><b>-</b></div></div>
     </section>
 
     <div id="profile-sections"></div>
 
     <section class="card">
-      <div class="row-title">操作</div>
+      <div class="row-title" data-i18n="actions">操作</div>
       <div class="buttons">
-        <button id="apply" class="secondary" type="button">重新套用掛載</button>
-        <button id="refresh" class="secondary" type="button">重新整理</button>
-        <button id="validate" class="secondary" type="button">設定檢查</button>
-        <button id="service" class="secondary" type="button">啟動服務</button>
-        <button id="showlog" class="secondary" type="button">查看日誌</button>
+        <button id="apply" class="secondary" type="button" data-i18n="reapply">重新应用挂载</button>
+        <button id="refresh" class="secondary" type="button" data-i18n="refresh">重新整理</button>
+        <button id="validate" class="secondary" type="button" data-i18n="validate">设置检查</button>
+        <button id="service" class="secondary" type="button" data-i18n="startService">启动服务</button>
+        <button id="showlog" class="secondary" type="button" data-i18n="showLog">查看日志</button>
+        <button id="lang-toggle" class="secondary" type="button">繁體</button>
       </div>
       <pre id="log" class="log hidden"></pre>
     </section>
 
-    <p class="foot">目前生效設定固定為 /data/adb/dcimswitch/mount.conf；修改此檔後由 confwatch/inotify 即時套用。模組目錄內的 mount.conf 只是範例/模板，不會被監聽。</p>
+    <p class="foot" data-i18n="footNote">当前生效设置固定为 /data/adb/dcimswitch/mount.conf；修改此文件后由 confwatch/inotify 即时应用。模块目录内的 mount.conf 只是范例/模板，不会被监听。</p>
   </main>
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
   <script src="./assets/index.js"></script>
