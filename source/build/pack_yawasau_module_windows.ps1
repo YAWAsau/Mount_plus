@@ -14,7 +14,7 @@ $ModuleRoot = [System.IO.Path]::GetFullPath($ModuleRoot)
 if ([string]::IsNullOrWhiteSpace($NativeOut)) { $NativeOut = Join-Path $ModuleRoot 'native_out' }
 $NativeOut = [System.IO.Path]::GetFullPath($NativeOut)
 if ([string]::IsNullOrWhiteSpace($OutZip)) {
-    $OutZip = Join-Path (Split-Path -Parent $ModuleRoot) 'YAWAsau_Mount_v1.4.93_source_recovery_ndkr30_api28_20261011.zip'
+    $OutZip = Join-Path (Split-Path -Parent $ModuleRoot) 'YAWAsau_Mount_v1.4.94_native_core_ndkr30_api28_20261011.zip'
 }
 
 function Fail([string]$m) { throw $m }
@@ -62,7 +62,7 @@ $mountFusefs = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mount_fusefs') (J
 $mounttx = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mounttx') (Join-Path $NativeOut 'native_out\bin\mounttx') 'native_out\bin\mounttx'
 $confwatch = ResolveNativeOutFile (Join-Path $NativeOut 'bin\confwatch') (Join-Path $NativeOut 'native_out\bin\confwatch') 'native_out\bin\confwatch'
 $sourcewatch = ResolveNativeOutFile (Join-Path $NativeOut 'bin\sourcewatch') (Join-Path $NativeOut 'native_out\bin\sourcewatch') 'sourcewatch'
-$Stage = Join-Path $ModuleRoot '.pack_stage_v1493'
+$Stage = Join-Path $ModuleRoot '.pack_stage_v1494'
 if (-not ([IO.Path]::GetFullPath($Stage).StartsWith($ModuleRoot.TrimEnd([char]92) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase))) { Fail 'Pack stage is outside ModuleRoot' }
 if (Test-Path -LiteralPath $Stage) { Remove-Item -LiteralPath $Stage -Recurse -Force }
 New-Item -ItemType Directory -Path $Stage -Force | Out-Null

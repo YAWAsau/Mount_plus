@@ -1,4 +1,6 @@
 base=$1
+MOUNTTX="$base/mounttx"
+RUNTIME="$base"
 cd "$base"
 for f in core service watchers customize control; do sh -n "$f.sh"; /data/adb/ksu/bin/busybox ash -n "$f.sh"; done
 logw(){ :; }; logi(){ :; }; valid_safe_abs(){ return 0; }

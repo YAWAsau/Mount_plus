@@ -186,4 +186,13 @@ su -c 'sh /data/adb/modules/dcimswitch/control.sh reload'
 - 尚未完成新版整機重開機與 Salt Player／相簿索引持久性實測。系統自行發起的掃描以及 App 私有音樂庫不受模組完全控制，不能保證既有 MediaStore ID、收藏或播放清單不變。
 - 新增 sourcewatch、重建 mounttx，使用 NDK r30 30.0.16248370 / API 28 / ARM64 / 16 KiB。其餘 bin 沿用已發布 v1.4.92 成品，未重編 SMB。
 
-安裝新版後請重開機，讓 sourcewatch 加入既有事件監聽管理程序。BUILD_KIT 為完整來源與建置配方，不是刷入包。
+安裝新版後請重開機，讓 sourcewatch 加入既有事件監聽管理程序。BUILD_KIT 含自有 C/Dex 源碼與建置配方，不是刷入包；filewatch、propwait 仍為預編譯檔，magiskpolicy 源碼需另行取得。
+
+
+## v1.4.94 native core
+
+掛載健康檢查、程序與 namespace 掃描、WebUI 狀態 JSON、設定解析及監聽器 supervisor 收斂到 `bin/mounttx`。Shell 保留安裝、通知、ROM 相容與交易流程。健康檢查和交易共用可見性探針，探針透過目錄 FD 清理，來源重命名也不遺留檔案。
+
+配置最多 96 筆 mount/profile/dir，超長欄位與錯誤輸入會明確拒絕，不截斷後套用。監聽器健康時阻塞等待；只有異常退出才使用有上限的退避。程式仍以 NDK r30 / API 28 / ARM64 / 16 KiB 對齊建置。
+
+`module.prop` 的 updateJson 指向最新正式 Release 的 `update.json`。版本與下載網址由實際 ZIP 的 module.prop 產生，預發布版不推送到穩定更新通道。GitHub Actions 在正式版發布後產生 update.json 與 changelog.md。

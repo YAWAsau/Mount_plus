@@ -17,6 +17,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <mntent.h>
 
 #ifndef MNT_DETACH
 #define MNT_DETACH 2
@@ -169,7 +170,7 @@ static int setns_pid_restore(pid_t pid, int *orig_fd) {
 
 static void restore_ns(int orig_fd) {
     if (orig_fd >= 0) {
-        (void)setns(orig_fd, CLONE_NEWNS);
+        if (setns(orig_fd, CLONE_NEWNS) != 0) _exit(91);
         close(orig_fd);
     }
 }
@@ -347,23 +348,35 @@ static pid_t media_pid_for_user(int user) {
     return fallback;
 }
 
-static bool mount_entry_at(const char *dst, char *src_out, size_t src_sz, char *fstype_out, size_t fs_sz) {
-    FILE *fp = fopen("/proc/self/mounts", "r");
-    if (!fp) return false;
-    char line[4096];
-    bool found = false;
-    while (fgets(line, sizeof(line), fp)) {
-        char src[PATH_MAX], mnt[PATH_MAX], fs[128];
-        if (sscanf(line, "%1023s %1023s %127s", src, mnt, fs) == 3) {
-            if (strcmp(mnt, dst) == 0) {
-                if (src_out && src_sz) snprintf(src_out, src_sz, "%s", src);
-                if (fstype_out && fs_sz) snprintf(fstype_out, fs_sz, "%s", fs);
-                found = true;
-                break;
-            }
-        }
+static void mount_unescape(char *s) {
+    char *out=s;
+    while(*s) {
+        if(*s=='\\' && s[1] && s[2] && s[3] &&
+           ((!strncmp(s,"\\040",4))||(!strncmp(s,"\\011",4))||
+            (!strncmp(s,"\\012",4))||(!strncmp(s,"\\134",4)))) {
+            *out++=(char)((s[1]-'0')*64+(s[2]-'0')*8+s[3]-'0');s+=4;
+        } else *out++=*s++;
     }
-    fclose(fp);
+    *out=0;
+}
+
+static bool mount_entry_at(const char *dst, char *src_out, size_t src_sz, char *fstype_out, size_t fs_sz) {
+    FILE *fp = setmntent("/proc/self/mounts", "r");
+    if (!fp) return false;
+    char line[65536];
+    struct mntent ent;
+    bool found = false;
+    while (getmntent_r(fp, &ent, line, sizeof(line))) {
+            /* Bionic getmntent_r retains the kernel's octal path escapes. */
+            mount_unescape(ent.mnt_dir);
+            mount_unescape(ent.mnt_fsname);
+            if (strcmp(ent.mnt_dir, dst) == 0) {
+                if (src_out && src_sz) snprintf(src_out, src_sz, "%s", ent.mnt_fsname);
+                if (fstype_out && fs_sz) snprintf(fstype_out, fs_sz, "%s", ent.mnt_type);
+                found = true;
+            }
+    }
+    endmntent(fp);
     return found;
 }
 
@@ -371,7 +384,7 @@ static bool is_bindfs_mounted_here(const char *dst) {
     char src[PATH_MAX] = {0};
     char fs[128] = {0};
     if (!mount_entry_at(dst, src, sizeof(src), fs, sizeof(fs))) return false;
-    return strncmp(fs, "fuse", 4) == 0 || strstr(src, "bindfs") != NULL || strcmp(src, "bindfs_shared") == 0;
+    return !strcmp(src,"bindfs_shared") && !strncmp(fs,"fuse",4);
 }
 
 static bool is_any_mount_here(const char *dst) {
@@ -634,33 +647,26 @@ static int mount_core(const Row *r) {
 }
 
 static bool test_visible_once(const Row *r) {
-    if (r->visible[0] == '\0') return true;
-    char probe[PATH_MAX];
-    char rel[PATH_MAX];
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-    int plen = snprintf(probe, sizeof(probe), "%s/.yawasau_mounttx_probe.%ld.%ld.%d", r->src, (long)ts.tv_sec, (long)ts.tv_nsec, (int)getpid());
-    if (plen < 0 || plen >= (int)sizeof(probe)) return false;
-    int fd = open(probe, O_CREAT | O_WRONLY | O_TRUNC | O_CLOEXEC, 0600);
-    if (fd < 0) return false;
-    close(fd);
-    const char *base = strrchr(probe, '/');
-    base = base ? base + 1 : probe;
-    int rlen = snprintf(rel, sizeof(rel), "%s/%s", r->visible, base);
-    bool ok = false;
-    if (rlen >= 0 && rlen < (int)sizeof(rel)) ok = access(rel, F_OK) == 0;
-    if (!ok) {
-        pid_t mp = media_pid_for_user(r->user);
-        if (mp > 0) {
-            int orig = -1;
-            if (setns_pid_restore(mp, &orig) == 0) {
-                ok = access(rel, F_OK) == 0;
-                restore_ns(orig);
-            }
+    if (!r->visible[0]) return true;
+    int dirfd=open(r->src,O_RDONLY|O_DIRECTORY|O_CLOEXEC);
+    if(dirfd<0)return false;
+    struct stat before,after; bool ok=false;
+    if(fstat(dirfd,&before)){close(dirfd);return false;}
+    char name[128],rel[PATH_MAX];struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC,&ts);
+    snprintf(name,sizeof(name),".yawasau_mounttx_probe.%d.%ld.%ld",getpid(),(long)ts.tv_sec,ts.tv_nsec);
+    int fd=openat(dirfd,name,O_CREAT|O_EXCL|O_WRONLY|O_CLOEXEC|O_NOFOLLOW,0600);
+    if(fd<0){close(dirfd);return false;}close(fd);
+    if(snprintf(rel,sizeof(rel),"%s/%s",r->visible,name)<(int)sizeof(rel)) {
+        ok=access(rel,F_OK)==0;
+        if(!ok){pid_t mp=media_pid_for_user(r->user);int orig=-1;
+            if(mp>0&&!setns_pid_restore(mp,&orig)){ok=access(rel,F_OK)==0;restore_ns(orig);}
         }
     }
-    unlink(probe);
-    return ok;
+    /* Directory FD cleanup still works if the source path is concurrently renamed. */
+    if(unlinkat(dirfd,name,0))ok=false;
+    close(dirfd);
+    return ok&&!stat(r->src,&after)&&before.st_dev==after.st_dev&&before.st_ino==after.st_ino;
 }
 
 static bool visible_probe_retry(const Row *r, const char *phase) {
@@ -683,9 +689,11 @@ static void trim_crlf(char *s) {
 
 static bool parse_int_field(const char *s, int *out) {
     if (!s || !*s) return false;
+    for (const char *p=s; *p; p++) if (*p<'0'||*p>'9') return false;
     char *end = NULL;
+    errno=0;
     long v = strtol(s, &end, 10);
-    if (!end || *end != '\0' || v < 0 || v > INT_MAX) return false;
+    if (errno || !end || *end != '\0' || v < 0 || v > INT_MAX) return false;
     *out = (int)v;
     return true;
 }
@@ -703,7 +711,9 @@ static int parse_row_line(char *line, Row *r) {
         *bar = '\0';
         p = bar + 1;
     }
-    if (nf < 12) return -1;
+    if (nf != 12 || strchr(fields[11], '|')) return -1;
+    const size_t limits[12] = {sizeof(r->name), 12, sizeof(r->src), sizeof(r->target), sizeof(r->lower), sizeof(r->visible), 2, sizeof(r->group), sizeof(r->profile), sizeof(r->policy), 2, sizeof(r->migrate)};
+    for (int i=0;i<12;i++) if(strlen(fields[i]) >= limits[i]) return -1;
     memset(r, 0, sizeof(*r));
     snprintf(r->name, sizeof(r->name), "%s", fields[0]);
     if (!parse_int_field(fields[1], &r->user)) return -1;
@@ -711,11 +721,11 @@ static int parse_row_line(char *line, Row *r) {
     snprintf(r->target, sizeof(r->target), "%s", fields[3]);
     snprintf(r->lower, sizeof(r->lower), "%s", fields[4]);
     snprintf(r->visible, sizeof(r->visible), "%s", fields[5]);
-    (void)parse_int_field(fields[6], &r->enabled);
+    if (!parse_int_field(fields[6], &r->enabled) || r->enabled > 1) return -1;
     snprintf(r->group, sizeof(r->group), "%s", fields[7]);
     snprintf(r->profile, sizeof(r->profile), "%s", fields[8]);
     snprintf(r->policy, sizeof(r->policy), "%s", fields[9][0] ? fields[9] : "preserve");
-    (void)parse_int_field(fields[10], &r->create);
+    if (!parse_int_field(fields[10], &r->create) || r->create > 1) return -1;
     snprintf(r->migrate, sizeof(r->migrate), "%s", fields[11]);
     return 0;
 }
@@ -724,15 +734,16 @@ static int read_rows(const char *path, RowSet *set) {
     memset(set, 0, sizeof(*set));
     FILE *fp = fopen(path, "r");
     if (!fp) return errno == ENOENT ? 0 : -1;
-    char line[MAX_LINE];
-    while (fgets(line, sizeof(line), fp)) {
-        if (set->count >= MAX_ROWS) { fclose(fp); return -2; }
-        Row r;
-        int pr = parse_row_line(line, &r);
-        if (pr < 0) { fclose(fp); return -3; }
-        if (pr == 0) set->rows[set->count++] = r;
+    char *line=NULL; size_t cap=0; ssize_t len; int rc=0;
+    while ((len=getline(&line,&cap,fp)) >= 0) {
+        if (len > PATH_MAX*5 || memchr(line,0,(size_t)len)) {rc=-3;break;}
+        if (set->count >= MAX_ROWS) {rc=-2;break;}
+        Row r; int pr=parse_row_line(line,&r);
+        if(pr<0){rc=-3;break;}
+        if(!pr)set->rows[set->count++]=r;
     }
-    fclose(fp);
+    if(ferror(fp))rc=-3;
+    free(line);fclose(fp);if(rc)return rc;
     return 0;
 }
 
@@ -855,10 +866,20 @@ static const char *arg_value(int *i, int argc, char **argv) {
     return argv[*i];
 }
 
+#include "native_runtime.h"
+#include "native_config.h"
+#include "native_watch.h"
+
 int main(int argc, char **argv) {
     memset(&g_opt, 0, sizeof(g_opt));
     g_opt.timeout_ms = 9000;
     g_opt.data_dir = "/data/adb/dcimswitch";
+    int native_rc = runtime_main(argc, argv);
+    if (native_rc != -1) return native_rc;
+    native_rc = config_main(argc, argv);
+    if (native_rc != -1) return native_rc;
+    native_rc = watch_main(argc, argv);
+    if (native_rc != -1) return native_rc;
     if (argc < 2) {
         usage(stderr);
         return 2;

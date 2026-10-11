@@ -4,7 +4,7 @@
   "target": "aarch64-linux-android28",
   "load_alignment": 16384,
   "classes_dex_sha256": "f2a483a2e50b35f3af4c211ef25809b723163d6c203f3daf1990404c118954a6",
-  "release_status": "candidate; full reboot and app-index persistence pending",
+  "release_status": "candidate; installed spare-device boot and live source recovery passed",
   "rebuilt_for_1493": {
     "ndk": "30.0.16248370",
     "api": 28,
@@ -26,16 +26,24 @@
     "mount_fusefs",
     "propwait"
   ],
-  "module_version": "v1.4.93-source-recovery-ndkr30-api28-20261011",
+  "module_version": "v1.4.94-native-core-ndkr30-api28-20261011",
   "rebuilt": [
-    "sourcewatch",
     "mounttx"
   ],
-  "native_build_origin": "Baseline v1.4.92, rebuilding only mounttx and adding sourcewatch with NDK r30 API 28.",
-  "validation": "Android 17 isolated sourcewatch, private-namespace kernel bind identity, shell scan guards and mksh/ash syntax; Node WebUI regression passed.",
+  "native_build_origin": "v1.4.93 RC2 baseline; mounttx rebuilt with shared native runtime/config/supervisor",
+  "validation": "Android 17 original 7 mounts healthy after boot; kernel and bindfs source disappearance/recreation recovered automatically; MediaProvider namespace content, profile a/b/a, manual remount, config restore, isolated UBSan identity/foreign mount/space path, parser differential/malformed input, supervisor recovery, shell and WebUI tests passed",
   "pending_validation": [
-    "Full installed-module reboot",
-    "bindfs_shared end-to-end across all App namespaces",
-    "Salt Player/gallery MediaStore identity persistence across reboot"
-  ]
+    "Salt Player/gallery private media-library persistence across reboot",
+    "Other ROMs / Android API 28 runtime"
+  ],
+  "rebuilt_for_1494": {
+    "ndk": "30.0.16248370",
+    "api": 28,
+    "abi": "arm64-v8a",
+    "page_size": 16384,
+    "files": {
+      "mounttx": "b9a3c0d729bbbb5a86ae533f5bdba1b8dca6b62d831143f1d8110cf2fcd81b94"
+    }
+  },
+  "boot_observation": "One boot attempt stalled with vendor fingerprint HAL SIGSEGV before user mounts; next reboot succeeded; cause not established."
 }

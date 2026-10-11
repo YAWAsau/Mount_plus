@@ -1,0 +1,40 @@
+name: Publish stable module update metadata
+on:
+  release:
+    types: [published, released]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: stable-update-json
+  cancel-in-progress: false
+jobs:
+  metadata:
+    if: github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease && !github.event.release.draft)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Read latest stable release and generate metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api repos/"$GH_REPO"/releases/latest > release.json
+          python - <<'PY'
+          import json, subprocess
+          from pathlib import Path
+          r=json.loads(Path('release.json').read_text())
+          assert not r['prerelease'] and not r['draft']
+          assets=[a for a in r['assets'] if a['name'].startswith('YAWAsau_Mount_') and a['name'].endswith('.zip') and 'BUILD_KIT' not in a['name']]
+          assert len(assets)==1, 'Expected exactly one installable module ZIP'
+          a=assets[0]
+          subprocess.run(['gh','release','download',r['tag_name'],'--pattern',a['name']],check=True)
+          subprocess.run(['python','source/build/generate_update_json.py',a['name'],'--tag',r['tag_name']],check=True)
+          Path('changelog.md').write_text(r.get('body') or r['name'],encoding='utf-8')
+          subprocess.run(['gh','release','upload',r['tag_name'],'update.json','changelog.md','--clobber'],check=True)
+          PY

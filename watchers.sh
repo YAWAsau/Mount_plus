@@ -41,26 +41,13 @@ watch_lock_wait() {
   return 1
 }
 watch_identity() {
-  case "$1" in ''|*[!0-9]*) return 1 ;; esac
-  # Ignore the comm field, which may itself contain spaces, and reject zombies.
-  awk '{sub(/^.*\) /, ""); if ($1 != "Z" && $1 != "X") print $20}' "/proc/$1/stat" 2>/dev/null
+  "$WATCH_MODDIR/bin/mounttx" watch-identity "$1"
 }
 watch_record_live() {
-  local wr_pid wr_start wr_boot wr_actual
-  read -r wr_pid wr_start wr_boot 2>/dev/null < "$1" || return 1
-  [ -n "$wr_start" ] || return 1
-  [ -n "$wr_boot" ] && [ "$wr_boot" = "$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)" ] || return 1
-  wr_actual=$(watch_identity "$wr_pid")
-  [ -n "$wr_actual" ] && [ "$wr_actual" = "$wr_start" ]
+  "$WATCH_MODDIR/bin/mounttx" watch-live "$1"
 }
 watch_write_record() {
-  local ww_start ww_boot
-  ww_start=$(watch_identity "$2")
-  [ -n "$ww_start" ] || return 1
-  ww_boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)
-  [ -n "$ww_boot" ] || return 1
-  printf '%s %s %s\n' "$2" "$ww_start" "$ww_boot" > "$1.tmp.$2" || return 1
-  mv -f "$1.tmp.$2" "$1"
+  "$WATCH_MODDIR/bin/mounttx" watch-write "$1" "$2"
 }
 watch_once_done() {
   local wo_boot
@@ -70,8 +57,10 @@ watch_once_done() {
 }
 watch_ready() {
   watch_once_done "$1" && return 0
-  watch_record_live "$WATCH_RUNTIME/watch.$1.supervisor" &&
-    watch_record_live "$WATCH_RUNTIME/watch.$1.worker"
+  if watch_record_live "$WATCH_RUNTIME/watch.$1.supervisor" &&
+    watch_record_live "$WATCH_RUNTIME/watch.$1.worker"; then return 0; fi
+  # A one-shot worker may finish between the first done check and PID checks.
+  watch_once_done "$1"
 }
 watch_worker_ready() {
   local ww_pid ww_rest
@@ -90,79 +79,10 @@ watch_detach() {
   fi
 }
 watch_signal_record() {
-  local wk_pid wk_start wk_boot
-  watch_record_live "$1" || return 0
-  read -r wk_pid wk_start wk_boot < "$1" || return 1
-  # Workers own a setsid process group. Mount transactions run in a separate
-  # session, so stopping an event reader cannot interrupt a filesystem change.
-  if [ "${2:-process}" = group ]; then
-    kill -TERM -- "-$wk_pid" 2>/dev/null || kill -TERM "$wk_pid" 2>/dev/null || true
-  else
-    kill -TERM "$wk_pid" 2>/dev/null || true
-  fi
+  "$WATCH_MODDIR/bin/mounttx" watch-signal "$1" "${2:-process}"
 }
 watch_supervise() {
-  local ws_name ws_pid ws_rest ws_child ws_sleep ws_stop ws_rc ws_delay ws_begin ws_end ws_saved ws_i
-  ws_name=$1
-  watch_name_valid "$ws_name" || return 2
-  # The kernel releases flock even after SIGKILL. Never unlink this lock file:
-  # doing so would allow a second supervisor to lock a different inode.
-  exec 9>"$WATCH_RUNTIME/watch.$ws_name.lock" || return 1
-  /system/bin/flock -n 9 9>&9 || return 0
-  [ ! -e "$WATCH_STOP" ] || return 0
-  watch_once_done "$ws_name" && return 0
-  # A supervisor may have died while its event reader survived. Retire that
-  # exact worker before publishing a replacement; never stack duplicate readers.
-  watch_signal_record "$WATCH_RUNTIME/watch.$ws_name.worker" group
-  ws_i=0
-  while watch_record_live "$WATCH_RUNTIME/watch.$ws_name.worker"; do
-    [ "$ws_i" -lt 40 ] || {
-      watch_log "[錯誤] 舊監聽器尚未退出，保留紀錄並拒絕重複啟動｜name=$ws_name"
-      return 1
-    }
-    sleep 0.05; ws_i=$((ws_i+1))
-  done
-  read -r ws_pid ws_rest < /proc/self/stat || return 1
-  watch_write_record "$WATCH_RUNTIME/watch.$ws_name.supervisor" "$ws_pid" || return 1
-  printf '%s\n' "$ws_pid" > "$WATCH_RUNTIME/$ws_name.pid"
-  ws_stop=0; ws_child=; ws_sleep=; ws_delay=1
-  trap '' HUP
-  trap 'ws_stop=1; if [ -n "$ws_child" ]; then kill -TERM -- "-$ws_child" 2>/dev/null || kill -TERM "$ws_child" 2>/dev/null || true; fi; [ -z "$ws_sleep" ] || kill -TERM "$ws_sleep" 2>/dev/null || true' TERM INT
-  watch_log "[資訊] 事件監聽管理程序啟動｜name=$ws_name｜pid=$ws_pid"
-  while [ "$ws_stop" = 0 ] && [ ! -e "$WATCH_STOP" ]; do
-    rm -f "$WATCH_RUNTIME/watch.$ws_name.worker"
-    ws_begin=$(date +%s)
-    # Close the lock fd in the worker tree. A crashed supervisor must not leave
-    # its flock held by logcat/propwait or a mount subprocess.
-    watch_detach "$WATCH_MODDIR/service.sh" --watcher "$ws_name" 9>&- </dev/null >> "$WATCH_RUNTIME/watchers.stderr.log" 2>&1 &
-    ws_child=$!
-    wait "$ws_child"; ws_rc=$?
-    [ "$ws_stop" = 0 ] || { wait "$ws_child" 2>/dev/null || true; break; }
-    case "$ws_name:$ws_rc" in
-      user0prop:0|user0file:0)
-        cat /proc/sys/kernel/random/boot_id > "$WATCH_RUNTIME/watch.$ws_name.done"
-        watch_log "[資訊] 一次性監聽已完成｜name=$ws_name"
-        break ;;
-    esac
-    # Only event readers remain in this group. Recoveries/mount transactions
-    # have their own sessions and are allowed to commit or roll back normally.
-    kill -TERM -- "-$ws_child" 2>/dev/null || true
-    ws_child=
-    rm -f "$WATCH_RUNTIME/watch.$ws_name.worker"
-    [ ! -e "$WATCH_STOP" ] || break
-    ws_end=$(date +%s)
-    [ "$((ws_end-ws_begin))" -lt 60 ] || ws_delay=1
-    watch_log "[警告] 事件監聽器退出，將重啟｜name=$ws_name｜rc=$ws_rc｜delay=${ws_delay}s"
-    sleep "$ws_delay" 9>&- &
-    ws_sleep=$!
-    wait "$ws_sleep" 2>/dev/null || true
-    ws_sleep=
-    ws_delay=$((ws_delay*2)); [ "$ws_delay" -le 30 ] || ws_delay=30
-  done
-  rm -f "$WATCH_RUNTIME/watch.$ws_name.worker" "$WATCH_RUNTIME/watch.$ws_name.supervisor"
-  ws_saved=$(cat "$WATCH_RUNTIME/$ws_name.pid" 2>/dev/null)
-  [ "$ws_saved" != "$ws_pid" ] || rm -f "$WATCH_RUNTIME/$ws_name.pid"
-  watch_log "[資訊] 事件監聽管理程序結束｜name=$ws_name"
+  exec "$WATCH_MODDIR/bin/mounttx" watch-supervise "$WATCH_MODDIR" "$WATCH_RUNTIME" "$WATCH_STOP" "$1"
 }
 watch_start_all() {
   local wa_name wa_i wa_failed

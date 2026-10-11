@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.93-event-recovery-ndkr30-api28
+# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.94-native-core-ndkr30-api28
 # Internal library only. mount.conf is parsed as data; it is never sourced.
 
 MODDIR=${MODDIR:-${0%/*}}
@@ -49,7 +49,7 @@ CONFIG_STATE="$RUNTIME/config.state"
 APPLIED_HASH="$RUNTIME/config.applied.cksum"
 PROFILE_INTERNAL_EVENT="$RUNTIME/profile_internal.conf_event"
 NS_BG_GEN="$RUNTIME/ns_background.generation"
-MODULE_VERSION=v1.4.93-source-recovery-ndkr30-api28-20261011
+MODULE_VERSION=v1.4.94-native-core-ndkr30-api28-20261011
 mkdir -p "$RUNTIME" "$PARSED" 2>/dev/null
 DELIM='|'
 
@@ -380,23 +380,16 @@ notify_config_apply_result() {
 ns_available() { command -v nsenter >/dev/null 2>&1 && [ -r /proc/1/ns/mnt ]; }
 ns1() { if ns_available; then nsenter -t 1 -m -- "$@"; else "$@"; fi; }
 mount_table() { ns1 cat /proc/mounts 2>/dev/null; }
-mount_src() { mount_table | awk -v p="$1" '$2==p{print $1;exit}'; }
-mount_fs() { mount_table | awk -v p="$1" '$2==p{print $3;exit}'; }
-is_mounted() { mount_table | awk -v p="$1" '$2==p{f=1} END{exit f?0:1}'; }
+mount_src() { "$MOUNTTX" mount-query source 1 "$1"; }
+mount_fs() { "$MOUNTTX" mount-query type 1 "$1"; }
+is_mounted() { "$MOUNTTX" mount-query present 1 "$1"; }
 realp() { readlink -f "$1" 2>/dev/null || printf '%s\n' "$1"; }
 stat_sig_ns1() { ns1 stat -c '%d:%i' "$1" 2>/dev/null; }
-same_ns1() { _a=$(stat_sig_ns1 "$1"); _b=$(stat_sig_ns1 "$2"); [ -n "$_a" ] && [ "$_a" = "$_b" ]; }
+same_ns1() { "$MOUNTTX" mount-query same 1 "$1" "$2"; }
 
 source_sig() {
-  # Device+inode of the current source directory.  This is deliberately path-based:
-  # if the user deletes /data/speed_debug while bindfs is still mounted and then
-  # recreates the same path, the new directory has a different signature and the
-  # existing FUSE/bind view must be torn down and rebuilt.
-  _ss_path=$1
-  [ -n "$_ss_path" ] || return 1
-  stat -L -c '%d:%i' "$_ss_path" 2>/dev/null || stat -c '%d:%i' "$_ss_path" 2>/dev/null
+  "$MOUNTTX" source-sig "$1"
 }
-
 active_source_state_append() {
   _assa_file=$1; _assa_u=$2; _assa_l=$3; _assa_s=$4; _assa_pol=$5
   [ -n "$_assa_file" ] || return 0
@@ -412,25 +405,8 @@ active_source_sig_lookup() {
 }
 
 row_source_needs_refresh() {
-  _rsnr_u=$1; _rsnr_s=$2; _rsnr_l=$3; _rsnr_pol=$4
-  _rsnr_cur=$(source_sig "$_rsnr_s" 2>/dev/null || true)
-  _rsnr_prev=$(active_source_sig_lookup "$_rsnr_u" "$_rsnr_l" "$_rsnr_s" "$_rsnr_pol" 2>/dev/null || true)
-  if [ -z "$_rsnr_cur" ]; then
-    # If the target still looks mounted but the source path has disappeared,
-    # the active entry is stale.  Let the normal path recreate it when create=1,
-    # or fail visibly instead of preserving a bind/FUSE view of a deleted dentry.
-    return 0
-  fi
-  if [ -z "$_rsnr_prev" ]; then
-    # v1.4.83 upgrade/self-heal: existing installations do not have source
-    # fingerprints yet.  Rebuild bindfs_shared rows once so a deleted/recreated
-    # source path is repaired without requiring a reboot.
-    [ "$_rsnr_pol" = bindfs_shared ] && return 0
-    return 1
-  fi
-  [ "$_rsnr_cur" != "$_rsnr_prev" ]
+  "$MOUNTTX" health stale "$1" "$2" "$3" "$4" "" "$RUNTIME"
 }
-
 active_source_state_rebuild_from_active() {
   _assr_active=${1:-$ACTIVE}
   _assr_out=$2
@@ -706,157 +682,23 @@ normalize_target() {
   esac
 }
 parse_config() {
-  _cfg=${1:-$CONF}; _out=${2:-$PARSED}
-  [ -f "$_cfg" ] || { loge "設定檔不存在｜$_cfg"; return 2; }
-  _tmp="$_out.tmp.$$"; rm -rf "$_tmp" 2>/dev/null; mkdir -p "$_tmp" || return 2
-  _partition=''; _mp=''; _fs=auto; _vgq=auto
-  # First pass: collect global keys before parsing mount rows. This lets source
-  # paths use relative syntax even if a user puts mount rows after comments or dirs.
-  while IFS= read -r _gline || [ -n "$_gline" ]; do
-    _gline=$(trim "$_gline")
-    case "$_gline" in
-      partition=*) _partition=${_gline#partition=} ;;
-      mount_point=*) _mp=${_gline#mount_point=} ;;
-      fs=*) _fs=${_gline#fs=} ;;
-      vendor_gallery_quiesce=*) _vgq=${_gline#vendor_gallery_quiesce=} ;;
-    esac
-  done < "$_cfg"
-  : > "$_tmp/profiles"; : > "$_tmp/dirs"; : > "$_tmp/mounts.all"
-  _lineno=0; _err=0
-  while IFS= read -r _line || [ -n "$_line" ]; do
-    _lineno=$((_lineno+1)); _line=$(trim "$_line")
-    case "$_line" in ''|'#'*) continue;; esac
-    case "$_line" in
-      version=*) ;;
-      partition=*|mount_point=*|fs=*|vendor_gallery_quiesce=*) ;;
-      dir=*)
-        # mksh treats an unquoted | in a trim pattern as alternation.
-        _dv=${_line#dir=}; _dp=${_dv%%'|'*}; [ "$_dp" != "$_dv" ] || { loge "mount.conf 第 $_lineno 行 dir 格式錯誤"; _err=1; continue; }
-        _dpol=${_dv#*'|'}; _dp_norm=$(normalize_source "$_mp" "$_dp") || { loge "mount.conf 第 $_lineno 行 dir 路徑無效/含 traversal"; _err=1; continue; }
-        case "$_dpol" in preserve|media_rw) ;; *) loge "mount.conf 第 $_lineno 行 dir policy 無效"; _err=1; continue;; esac
-        printf '%s|%s
-' "$_dp_norm" "$_dpol" >> "$_tmp/dirs"
-        ;;
-      profile=*)
-        _v=${_line#profile=}; _g=${_v%%'|'*}; [ "$_g" != "$_v" ] || { loge "mount.conf 第 $_lineno 行 profile 格式錯誤"; _err=1; continue; }
-        _sel=${_v#*'|'}; valid_id "$_g" && valid_id "$_sel" || { loge "mount.conf 第 $_lineno 行 profile 名稱無效"; _err=1; continue; }
-        printf '%s|%s\n' "$_g" "$_sel" >> "$_tmp/profiles"
-        ;;
-      mount=*)
-        _v=${_line#mount=}
-        _nf=$(printf '%s\n' "$_v" | awk -F'|' '{print NF}')
-        case "$_nf" in 8|9|10) ;; *) loge "mount.conf 第 $_lineno 行 mount 必須有 8~10 個欄位"; _err=1; continue;; esac
-        _name=$(printf '%s' "$_v" | cut -d'|' -f1)
-        _user=$(printf '%s' "$_v" | cut -d'|' -f2)
-        _src=$(printf '%s' "$_v" | cut -d'|' -f3)
-        _target=$(printf '%s' "$_v" | cut -d'|' -f4)
-        _enabled=$(printf '%s' "$_v" | cut -d'|' -f5)
-        _group=$(printf '%s' "$_v" | cut -d'|' -f6)
-        _pval=$(printf '%s' "$_v" | cut -d'|' -f7)
-        _policy=$(printf '%s' "$_v" | cut -d'|' -f8)
-        _create=$(printf '%s' "$_v" | cut -d'|' -f9)
-        _migrate=$(printf '%s' "$_v" | cut -d'|' -f10)
-        [ -n "$_policy" ] || _policy=preserve
-        [ -n "$_create" ] || _create=0
-        [ -n "$_migrate" ] || _migrate=none
-        valid_user "$_user" || { loge "mount.conf 第 $_lineno 行 user 無效"; _err=1; continue; }
-        user_exists "$_user" || { loge "mount.conf 第 $_lineno 行 user=$_user 不存在，請先建立/啟用此 Android User 或改成正確 User ID"; _err=1; continue; }
-        _src_in=$_src; _target_in=$_target
-        _src=$(normalize_source "$_mp" "$_src_in") || { loge "mount.conf 第 $_lineno 行來源路徑無效/含 traversal"; _err=1; continue; }
-        case "$_src_in" in /*) ;; *) logi "mount.conf 第 $_lineno 行 source 相對路徑已展開｜$_src_in → $_src" ;; esac
-        case "$_enabled" in 0|1) ;; *) loge "mount.conf 第 $_lineno 行 enabled 只能是 0/1"; _err=1; continue;; esac
-        case "$_policy" in preserve|media_rw|bindfs_shared) ;; *) loge "mount.conf 第 $_lineno 行 policy 只接受 preserve/media_rw/bindfs_shared"; _err=1; continue;; esac
-        case "$_create" in 0|1) ;; *) loge "mount.conf 第 $_lineno 行 create 只接受 0/1"; _err=1; continue;; esac
-        case "$_migrate" in none|once) ;; *) loge "mount.conf 第 $_lineno 行 migrate 只接受 none/once"; _err=1; continue;; esac
-        if [ -n "$_group" ] || [ -n "$_pval" ]; then valid_id "$_group" && valid_id "$_pval" || { loge "mount.conf 第 $_lineno 行 profile group/value 無效"; _err=1; continue; }; fi
-        _norm=$(normalize_target "$_user" "$_target_in") || { loge "mount.conf 第 $_lineno 行 target 路徑無效，或 target 的 User ID 與 user=$_user 不一致"; _err=1; continue; }
-        _lower=$(printf '%s
-' "$_norm" | awk -F'|' '{print $1}'); _visible=$(printf '%s
-' "$_norm" | awk -F'|' '{print $2}')
-        case "$_target_in" in /*) ;; *) logi "mount.conf 第 $_lineno 行 target 相對路徑已展開｜$_target_in → $_visible"; _target=$_visible ;; esac
-        [ "$(realp "$_src")" != "$(realp "$_lower")" ] || { loge "mount.conf 第 $_lineno 行來源與目標實體路徑不可相同"; _err=1; continue; }
-        if [ -z "$_name" ]; then _name=${_target%/}; _name=${_name##*/}; [ -n "$_name" ] || _name="$_target"; fi
-        case "$_name$_src$_target" in *'|'*) loge "mount.conf 第 $_lineno 行欄位不可包含 |"; _err=1; continue;; esac
-        printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$_name" "$_user" "$_src" "$_target" "$_lower" "$_visible" "$_enabled" "$_group" "$_pval" "$_policy" "$_create" "$_migrate" >> "$_tmp/mounts.all"
-        ;;
-      *) loge "mount.conf 第 $_lineno 行不支援：$_line"; _err=1 ;;
-    esac
-  done < "$_cfg"
-  [ -n "$_partition" ] || { loge "partition 必填：請填分區名稱，例如 partition=YAWAsau"; _err=1; }
-  [ -z "$_partition" ] || valid_id "$_partition" || { loge "partition 名稱無效：只接受英數字、點、底線與連字號"; _err=1; }
-  [ -n "$_mp" ] || { loge "mount_point 必填：請填主分區掛載位置，例如 mount_point=/mnt/YAWAsau"; _err=1; }
-  [ -z "$_mp" ] || valid_safe_abs "$_mp" || { loge "mount_point 路徑無效/含 traversal"; _err=1; }
-  case "$_fs" in auto|f2fs|ext4) ;; *) loge "fs 只接受 auto/f2fs/ext4"; _err=1;; esac
-  case "$_vgq" in auto|off|force) ;; *) loge "vendor_gallery_quiesce 只接受 auto/off/force"; _err=1;; esac
-  # profile lines must be unique
-  if [ "$(cut -d'|' -f1 "$_tmp/profiles" 2>/dev/null | sort | uniq -d | head -n1)" ]; then loge "mount.conf 有重複 profile group"; _err=1; fi
-  # Every enabled profile entry must have a selected group.
-  while IFS='|' read -r _n _u _s _t _l _v _e _g _pv _pol _create _migrate; do
-    [ "$_e" = 1 ] || continue
-    if [ -n "$_g" ]; then grep -Fq "$_g|" "$_tmp/profiles" || { loge "profile group=$_g 沒有 profile=... 選擇值"; _err=1; }; fi
-  done < "$_tmp/mounts.all"
-  [ "$_err" = 0 ] || { rm -rf "$_tmp"; return 3; }
-  printf 'partition=%s\nmount_point=%s\nfs=%s\nvendor_gallery_quiesce=%s\n' "$_partition" "$_mp" "$_fs" "$_vgq" > "$_tmp/global"
-  # Build selected desired list and reject duplicate targets.
-  : > "$_tmp/mounts.desired"
-  while IFS='|' read -r _n _u _s _t _l _v _e _g _pv _pol _create _migrate; do
-    [ "$_e" = 1 ] || continue
-    if [ -n "$_g" ]; then _sel=$(awk -F'|' -v g="$_g" '$1==g{print $2;exit}' "$_tmp/profiles"); [ "$_sel" = "$_pv" ] || continue; fi
-    printf '%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s|%s\n' "$_n" "$_u" "$_s" "$_t" "$_l" "$_v" "$_e" "$_g" "$_pv" "$_pol" "$_create" "$_migrate" >> "$_tmp/mounts.desired"
-  done < "$_tmp/mounts.all"
-  if [ "$(cut -d'|' -f2,5 "$_tmp/mounts.desired" | sort | uniq -d | head -n1)" ]; then loge "目前 profile 選擇造成重複 target，拒絕套用"; rm -rf "$_tmp"; return 4; fi
-  # Publish the parsed snapshot file-by-file with atomic rename. Never move the
-  # whole shared directory away: WebUI/status readers must not observe a brief
-  # missing parsed/ directory while a profile transaction is committing.
-  mkdir -p "$_out" 2>/dev/null || { rm -rf "$_tmp"; return 5; }
-  for _pc_f in global profiles dirs mounts.all mounts.desired; do
-    [ -f "$_tmp/$_pc_f" ] || { rm -rf "$_tmp"; return 5; }
-    mv -f "$_tmp/$_pc_f" "$_out/$_pc_f" 2>/dev/null || { rm -rf "$_tmp"; return 5; }
-  done
-  rm -rf "$_tmp" 2>/dev/null
-  return 0
+  local cfg_native_users cfg_native_file
+  cfg_native_file=${1:-$CONF}; cfg_native_users=
+  # Framework user enumeration is needed only for non-owner rows, once per parse.
+  if [ "all" = all ] && grep -Eq '^[[:space:]]*mount=[^|]*[|]0*[1-9][0-9]*[|]' "$cfg_native_file"; then
+    cfg_native_users=$(cmd user list 2>/dev/null; pm list users 2>/dev/null; dumpsys user 2>/dev/null)
+  fi
+  "$MOUNTTX" parse-config "$cfg_native_file" "${2:-$PARSED}" "$LOG" "$cfg_native_users" all
 }
-
 parse_global_config() {
-  # Parse only partition/mount_point/fs so the block device can be mounted even
-  # when later bind rows contain mistakes. This function deliberately ignores
-  # mount/dir/profile rows and never treats their errors as root-mount blockers.
-  _cfg=${1:-$CONF}; _out=${2:-$PARSED}
-  [ -f "$_cfg" ] || { loge "設定檔不存在｜$_cfg"; return 2; }
-  _tmp="$_out.global.tmp.$$"; rm -rf "$_tmp" 2>/dev/null; mkdir -p "$_tmp" || return 2
-  _partition=''; _mp=''; _fs=auto; _vgq=auto
-  while IFS= read -r _line || [ -n "$_line" ]; do
-    _line=$(trim "$_line")
-    case "$_line" in
-      ''|'#'*) continue ;;
-      partition=*) _partition=${_line#partition=} ;;
-      mount_point=*) _mp=${_line#mount_point=} ;;
-      fs=*) _fs=${_line#fs=} ;;
-      vendor_gallery_quiesce=*) _vgq=${_line#vendor_gallery_quiesce=} ;;
-    esac
-  done < "$_cfg"
-  _err=0
-  [ -n "$_partition" ] || { loge "partition 必填：請填分區名稱，例如 partition=YAWAsau"; _err=1; }
-  [ -z "$_partition" ] || valid_id "$_partition" || { loge "partition 名稱無效：只接受英數字、點、底線與連字號"; _err=1; }
-  [ -n "$_mp" ] || { loge "mount_point 必填：請填主分區掛載位置，例如 mount_point=/mnt/YAWAsau"; _err=1; }
-  [ -z "$_mp" ] || valid_safe_abs "$_mp" || { loge "mount_point 路徑無效/含 traversal"; _err=1; }
-  case "$_fs" in auto|f2fs|ext4) ;; *) loge "fs 只接受 auto/f2fs/ext4"; _err=1;; esac
-  case "$_vgq" in auto|off|force) ;; *) loge "vendor_gallery_quiesce 只接受 auto/off/force"; _err=1;; esac
-  [ "$_err" = 0 ] || { rm -rf "$_tmp"; return 3; }
-  printf 'partition=%s
-mount_point=%s
-fs=%s
-vendor_gallery_quiesce=%s
-' "$_partition" "$_mp" "$_fs" "$_vgq" > "$_tmp/global" || { rm -rf "$_tmp"; return 2; }
-  : > "$_tmp/profiles"; : > "$_tmp/dirs"; : > "$_tmp/mounts.all"; : > "$_tmp/mounts.desired"
-  mkdir -p "$_out" 2>/dev/null || { rm -rf "$_tmp"; return 2; }
-  for _pg_f in global profiles dirs mounts.all mounts.desired; do
-    mv -f "$_tmp/$_pg_f" "$_out/$_pg_f" 2>/dev/null || { rm -rf "$_tmp"; return 2; }
-  done
-  rm -rf "$_tmp" 2>/dev/null
-  return 0
+  local cfg_native_users cfg_native_file
+  cfg_native_file=${1:-$CONF}; cfg_native_users=
+  # Framework user enumeration is needed only for non-owner rows, once per parse.
+  if [ "global" = all ] && grep -Eq '^[[:space:]]*mount=[^|]*[|]0*[1-9][0-9]*[|]' "$cfg_native_file"; then
+    cfg_native_users=$(cmd user list 2>/dev/null; pm list users 2>/dev/null; dumpsys user 2>/dev/null)
+  fi
+  "$MOUNTTX" parse-config "$cfg_native_file" "${2:-$PARSED}" "$LOG" "$cfg_native_users" global
 }
-
 validate_snapshot_make() {
   # Copy an arbitrary config to a stable private snapshot for validate/dryrun.
   # This is read-only and must never publish parsed/cache/state.
@@ -1545,41 +1387,14 @@ restore_disabled_mount_targets_from_config() {
   return 0
 }
 user_proc_pids() {
-  # Include already-running apps of the target Android user.  Some ROMs give
-  # MT/MediaProvider/ExternalStorage separate mount namespaces; binding only
-  # init/zygote/media can leave an already-open file manager seeing the old
-  # lower directory and still hitting EACCES.
-  _upp_u=$1
-  case "$_upp_u" in ''|*[!0-9]*) return 0;; esac
-  _upp_lo=$((_upp_u*100000))
-  _upp_hi=$((_upp_lo+99999))
-  for _upp_d in /proc/[0-9]*; do
-    _upp_p=${_upp_d##*/}
-    _upp_uid=$(awk '/^Uid:/{print $2; exit}' "$_upp_d/status" 2>/dev/null)
-    case "$_upp_uid" in ''|*[!0-9]*) continue;; esac
-    [ "$_upp_uid" -ge "$_upp_lo" ] && [ "$_upp_uid" -le "$_upp_hi" ] && printf '%s\n' "$_upp_p"
-  done
+  "$MOUNTTX" pids "$1" user
 }
-
 core_ns_pids_base() {
-  _u=$1
-  printf '%s\n' 1
-  ensure_media_pid "$_u" 2>/dev/null || true
-  pidof system_server 2>/dev/null | tr ' ' '\n'
-  pidof zygote64 2>/dev/null | tr ' ' '\n'
-  pidof zygote 2>/dev/null | tr ' ' '\n'
-  pidof android.process.media 2>/dev/null | tr ' ' '\n'
-  pidof com.android.externalstorage 2>/dev/null | tr ' ' '\n'
-  pidof sdcard 2>/dev/null | tr ' ' '\n'
-  pidof vold 2>/dev/null | tr ' ' '\n'
+  "$MOUNTTX" pids "$1" core
 }
-
 core_ns_pids() {
-  _u=$1
-  core_ns_pids_base "$_u"
-  user_proc_pids "$_u"
+  "$MOUNTTX" pids "$1" all
 }
-
 fast_foreground_reason() {
   case "$1" in
     boot_initial|user*_unlocked|user0_propwait|user0_filewatch|user_*_storage_ready_retry*) return 0 ;;
@@ -1615,32 +1430,8 @@ ns_background_generation_current() {
 }
 
 app_ns_pids_only() {
-  _anpo_u=$1
-  _anpo_base=''
-  _anpo_seen=''
-  # Build an exclusion set for init / MediaProvider / system_server / zygote /
-  # externalstorage / vold / sdcard namespaces. Background work must never
-  # mutate these core namespaces after the foreground transaction commits.
-  for _anpo_p in $(core_ns_pids_base "$_anpo_u"); do
-    case "$_anpo_p" in ''|*[!0-9]*) continue;; esac
-    _anpo_ns=$(pid_ns_id "$_anpo_p"); [ -n "$_anpo_ns" ] || continue
-    case " $_anpo_base " in *" $_anpo_ns "*) ;; *) _anpo_base="$_anpo_base $_anpo_ns";; esac
-  done
-  _anpo_lo=$((_anpo_u*100000+10000))
-  _anpo_hi=$((_anpo_u*100000+99999))
-  for _anpo_p in $(user_proc_pids "$_anpo_u"); do
-    case "$_anpo_p" in ''|*[!0-9]*) continue;; esac
-    _anpo_uid=$(awk '/^Uid:/{print $2;exit}' "/proc/$_anpo_p/status" 2>/dev/null)
-    case "$_anpo_uid" in ''|*[!0-9]*) continue;; esac
-    [ "$_anpo_uid" -ge "$_anpo_lo" ] && [ "$_anpo_uid" -le "$_anpo_hi" ] || continue
-    _anpo_ns=$(pid_ns_id "$_anpo_p"); [ -n "$_anpo_ns" ] || continue
-    case " $_anpo_base " in *" $_anpo_ns "*) continue;; esac
-    case " $_anpo_seen " in *" $_anpo_ns "*) continue;; esac
-    _anpo_seen="$_anpo_seen $_anpo_ns"
-    printf '%s\n' "$_anpo_p"
-  done
+  "$MOUNTTX" pids "$1" apps
 }
-
 mount_app_ns_only() {
   _mano_gen=$1; _mano_u=$2; _mano_src=$3; _mano_dst=$4; _mano_pol=${5:-preserve}
   # bindfs_shared deliberately exists only in init + MediaProvider namespaces.
@@ -1761,14 +1552,11 @@ media_uid_for_bindfs() {
 }
 
 bindfs_mounted_pid() {
-  _bf_pid=$1; _bf_dst=$2
-  [ -e "/proc/$_bf_pid/ns/mnt" ] || return 1
-  nsenter -t "$_bf_pid" -m -- awk -v p="$_bf_dst" '$2==p && ($3 ~ /^fuse/ || $1 ~ /bindfs/ || $1=="bindfs_shared"){f=1} END{exit f?0:1}' /proc/mounts 2>/dev/null
+  "$MOUNTTX" mount-query fuse "$1" "$2"
 }
 
 bindfs_mounted_ns1() {
-  awk -v p="$1" '$2==p && ($3 ~ /^fuse/ || $1 ~ /bindfs/ || $1=="bindfs_shared"){f=1} END{exit f?0:1}' /proc/mounts 2>/dev/null || \
-  ns1 awk -v p="$1" '$2==p && ($3 ~ /^fuse/ || $1 ~ /bindfs/ || $1=="bindfs_shared"){f=1} END{exit f?0:1}' /proc/mounts 2>/dev/null
+  "$MOUNTTX" mount-query fuse 1 "$1"
 }
 
 bindfs_mounted_for_user() {
@@ -1786,15 +1574,10 @@ bindfs_mounted_for_user() {
 }
 
 row_mounted() {
-  _rm_u=$1; _rm_s=$2; _rm_l=$3; _rm_pol=$4
-  if [ "$_rm_pol" = bindfs_shared ]; then bindfs_mounted_for_user "$_rm_u" "$_rm_l"; else same_ns1 "$_rm_s" "$_rm_l"; fi
+  "$MOUNTTX" health mounted "$1" "$2" "$3" "$4" "" "$RUNTIME"
 }
-
 target_occupied_unknown() {
-  _tou_s=$1; _tou_l=$2; _tou_pol=$3
-  is_mounted "$_tou_l" || return 1
-  if [ "$_tou_pol" = bindfs_shared ]; then bindfs_mounted_ns1 "$_tou_l" && return 1; else same_ns1 "$_tou_s" "$_tou_l" && return 1; fi
-  return 0
+  "$MOUNTTX" occupied "$1" "$2" "$3" "$RUNTIME"
 }
 
 bindfs_mount_pid() {
@@ -2073,14 +1856,7 @@ media_scan_mapping_ready() (
     [ "$ru" = "$u" ] || continue
     canonical=$(media_scan_visible_path "$ru" "$vis") || continue
     [ "$canonical" = "$path" ] || continue
-    before=$(source_sig "$src") || return 1
-    row_source_needs_refresh "$ru" "$src" "$lower" "$policy" && return 1
-    row_mounted "$ru" "$src" "$lower" "$policy" || return 1
-    # Check the namespace used by the scanner, not merely the caller's view.
-    pid=$(ensure_media_pid "$ru") || return 1
-    [ -n "$pid" ] || return 1
-    nsenter -t "$pid" -m -- sh -c 'MODDIR=$1; . "$1/core.sh"; visible_probe "$2" "$3" "$4"' sh "$MODDIR" "$ru" "$src" "$canonical" || return 1
-    [ "$before" = "$(source_sig "$src")" ]
+    "$MOUNTTX" health scan "$ru" "$src" "$lower" "$policy" "$canonical" "$RUNTIME"
     return $?
   done < "$ACTIVE"
   return 1
@@ -2156,19 +1932,8 @@ media_scan_schedule_initial_roots() {
 }
 
 visible_probe() {
-  local _u _src _vis _seq _probe _base _rel _pid
-  _u=$1; _src=$2; _vis=$3; [ -n "$_vis" ] || return 0
-  _seq=".$$.$(date +%s 2>/dev/null).$RANDOM"; _probe="$_src/.yawasau_probe$_seq"
-  ( : > "$_probe" ) 2>/dev/null || return 1
-  _base=${_probe##*/}; _rel=${_vis%/}/$_base
-  if [ -e "$_rel" ]; then rm -f "$_probe"; return 0; fi
-  _pid=$(ensure_media_pid "$_u" 2>/dev/null || true)
-  if [ -n "$_pid" ] && nsenter -t "$_pid" -m -- test -e "$_rel" >/dev/null 2>&1; then rm -f "$_probe"; return 0; fi
-  sleep 0.12
-  if [ -e "$_rel" ] || { [ -n "$_pid" ] && nsenter -t "$_pid" -m -- test -e "$_rel" >/dev/null 2>&1; }; then rm -f "$_probe"; return 0; fi
-  rm -f "$_probe"; return 1
+  "$MOUNTTX" health visible "$1" "$2" "" preserve "$3" "$RUNTIME"
 }
-
 visible_probe_retry() {
   _vpr_u=$1; _vpr_src=$2; _vpr_vis=$3; _vpr_label=${4:-mount}
   _vpr_try=0
@@ -2184,15 +1949,7 @@ visible_probe_retry() {
 }
 
 unmount_pid_if_ours() {
-  _pid=$1; _src=$2; _dst=$3; _pol=${4:-preserve}; [ -e "/proc/$_pid/ns/mnt" ] || return 0
-  if [ "$_pol" = bindfs_shared ]; then
-    bindfs_mounted_pid "$_pid" "$_dst" || return 0
-    nsenter -t "$_pid" -m -- umount "$_dst" 2>/dev/null || nsenter -t "$_pid" -m -- umount -l "$_dst" 2>/dev/null || true
-    return 0
-  fi
-  _ss=$(nsenter -t "$_pid" -m -- stat -c '%d:%i' "$_src" 2>/dev/null); _ds=$(nsenter -t "$_pid" -m -- stat -c '%d:%i' "$_dst" 2>/dev/null)
-  [ -n "$_ss" ] && [ "$_ss" = "$_ds" ] || return 0
-  nsenter -t "$_pid" -m -- umount "$_dst" 2>/dev/null || nsenter -t "$_pid" -m -- umount -l "$_dst" 2>/dev/null || true
+  "$MOUNTTX" unmount-owned "$1" "$2" "$3" "${4:-preserve}" "$RUNTIME"
 }
 unmount_all_ns() {
   _u=$1; _src=$2; _dst=$3; _pol=${4:-preserve}; _seen=''
@@ -3142,29 +2899,14 @@ set_profile() {
 
 json_escape() { printf '%s' "$1" | sed 's/\\/\\\\/g;s/"/\\"/g;s/\t/\\t/g'; }
 status_json() {
-  if [ -f "$CONF" ]; then migrate_config_schema >/dev/null 2>&1 || true; else seed_config >/dev/null 2>&1; fi
+  # Boot/apply owns migration; status queries must not rewrite live configuration.
+  [ -f "$CONF" ] || seed_config >/dev/null 2>&1
   if [ ! -f "$PARSED/global" ] || [ ! -f "$PARSED/mounts.all" ]; then
     if parse_config "$CONF" "$PARSED" >/dev/null 2>&1; then _sjh=$(config_hash "$CONF" 2>/dev/null || true); [ -n "$_sjh" ] && printf '%s\n' "$_sjh" > "$PARSED_HASH.tmp.$$" 2>/dev/null && mv -f "$PARSED_HASH.tmp.$$" "$PARSED_HASH" 2>/dev/null || true; config_state_write valid 0 status_init "$_sjh" >/dev/null 2>&1 || true; fi
   fi
-  if config_state_valid; then _cfgok=true; else _cfgok=false; fi
-  _mp=$(cfg_get mount_point); _part=$(cfg_get partition); _dev=$(resolve_device 2>/dev/null || true); _fs=$(mount_fs "$_mp"); [ -n "$_fs" ] || _fs='-'
-  is_mounted "$_mp" && _pm=true || _pm=false
-  printf '{"version":"%s","config":"%s","configValid":%s,"partition":"%s","device":"%s","mountPoint":"%s","fsType":"%s","partitionMounted":%s,' "$(json_escape "$MODULE_VERSION")" "$(json_escape "$CONF")" "$_cfgok" "$(json_escape "$_part")" "$(json_escape "$_dev")" "$(json_escape "$_mp")" "$(json_escape "$_fs")" "$_pm"
-  printf '"profiles":['; _first=1
-  if [ -f "$PARSED/profiles" ]; then while IFS='|' read -r _g _sel; do [ -n "$_g" ] || continue; [ "$_first" = 1 ] || printf ','; _first=0; printf '{"group":"%s","selected":"%s","options":[' "$(json_escape "$_g")" "$(json_escape "$_sel")"; _of=1; awk -F'|' -v g="$_g" '$8==g{print $9"|"$1"|"$3"|"$4}' "$PARSED/mounts.all" | awk -F'|' '!seen[$1]++' | while IFS='|' read -r _ov _on _os _ot; do [ "$_of" = 1 ] || printf ','; _of=0; printf '{"value":"%s","name":"%s","source":"%s","target":"%s"}' "$(json_escape "$_ov")" "$(json_escape "$_on")" "$(json_escape "$_os")" "$(json_escape "$_ot")"; done; printf ']}'; done < "$PARSED/profiles"; fi
-  printf '],"mounts":['; _first=1
-  if [ -f "$PARSED/mounts.all" ]; then while IFS='|' read -r _n _u _s _t _l _v _e _g _pv _pol _create _migrate; do
-    [ "$_first" = 1 ] || printf ','; _first=0
-    _active=false; _mounted=false; _visible=false; _selected=true
-    if [ -n "$_g" ]; then _sel=$(awk -F'|' -v g="$_g" '$1==g{print $2;exit}' "$PARSED/profiles"); [ "$_sel" = "$_pv" ] || _selected=false; fi
-    [ "$_e" = 1 ] && [ "$_selected" = true ] && _active=true
-    if [ -d "$_s" ] && ! row_source_needs_refresh "$_u" "$_s" "$_l" "$_pol" && row_mounted "$_u" "$_s" "$_l" "$_pol"; then _mounted=true; fi
-    if [ "$_mounted" = true ]; then
-      if [ -z "$_v" ] || visible_probe "$_u" "$_s" "$_v"; then _visible=true; fi
-    fi
-    printf '{"name":"%s","user":%s,"source":"%s","target":"%s","enabled":%s,"active":%s,"mounted":%s,"visible":%s,"group":"%s","profile":"%s","policy":"%s","create":%s,"migrate":"%s"}' "$(json_escape "$_n")" "$_u" "$(json_escape "$_s")" "$(json_escape "$_t")" "$([ "$_e" = 1 ] && echo true || echo false)" "$_active" "$_mounted" "$_visible" "$(json_escape "$_g")" "$(json_escape "$_pv")" "$(json_escape "$_pol")" "$([ "$_create" = 1 ] && echo true || echo false)" "$(json_escape "$_migrate")"
-  done < "$PARSED/mounts.all"; fi
-  printf ']}'
+  local status_device
+  status_device=$(resolve_device 2>/dev/null || true)
+  "$MOUNTTX" status "$MODULE_VERSION" "$CONF" "$PARSED" "$RUNTIME" "$status_device"
 }
 
 refresh_card() {

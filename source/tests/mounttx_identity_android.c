@@ -32,6 +32,12 @@ int main(int argc,char **argv) {
     assert(mount(NULL,r.src,NULL,MS_BIND|MS_REMOUNT|MS_RDONLY,NULL)==0);
     assert(!test_visible_once(&r));
     assert(umount2(r.src,0)==0);
+    /* mount table escapes must decode whitespace paths correctly. */
+    char spaced[PATH_MAX];snprintf(spaced,sizeof(spaced),"%s/dst space",argv[1]);
+    assert(mkdir(spaced,0700)==0);assert(mount(r.src,spaced,NULL,MS_BIND,NULL)==0);
+    assert(is_any_mount_here(spaced));assert(umount2(spaced,0)==0);
+    /* Source signatures must reject replacement even if the old mount remains. */
+    assert(source_stale(&r));
     puts("PASS: replaced-source detach, remount identity, probe, foreign mount preserved, unwritable source fails closed");
     return 0;
 }

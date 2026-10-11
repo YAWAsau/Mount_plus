@@ -10,3 +10,6 @@
 *.yml text eol=lf
 *.cjs text eol=lf
 *.py text eol=lf
+*.h text eol=lf
+*.txt text eol=lf
+.gitattributes text eol=lf
