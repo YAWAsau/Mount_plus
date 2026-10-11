@@ -30,7 +30,7 @@ jobs:
           from pathlib import Path
           r=json.loads(Path('release.json').read_text())
           assert not r['prerelease'] and not r['draft']
-          assets=[a for a in r['assets'] if a['name'].startswith('YAWAsau_Mount_') and a['name'].endswith('.zip') and 'BUILD_KIT' not in a['name']]
+          assets=[a for a in r['assets'] if a['name'].startswith('YAWAsau_Mount_') and a['name'].endswith('.zip') and 'BUILD_KIT' not in a['name'] and '-SOURCE' not in a['name']]
           assert len(assets)==1, 'Expected exactly one installable module ZIP'
           a=assets[0]
           subprocess.run(['gh','release','download',r['tag_name'],'--pattern',a['name']],check=True)

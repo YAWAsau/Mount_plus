@@ -4,3 +4,5 @@ native_work/
 .dex_extract/
 YAWAsau_Mount_*.zip*
 __pycache__/
+
+/source/mountctl/target/

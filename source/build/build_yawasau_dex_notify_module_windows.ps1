@@ -9,7 +9,7 @@ $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $ModuleRoot = $Root
 $DexRoot = Join-Path $Root 'source\dex_notify'
-$OutZip = Join-Path $Root 'YAWAsau_Mount_v1.4.94_native_core_ndkr30_api28_20261011.zip'
+$OutZip = Join-Path $Root 'YAWAsau_Mount_v1.4.95_ndkr30_api28_20261011.zip'
 if (!$PackOnly -and !$SkipDexBuild) {
   if (!(Test-Path -LiteralPath $JavaHome)) { throw "JAVA_HOME not found: $JavaHome" }
   if (!(Test-Path -LiteralPath $SdkPath)) { throw "Android SDK not found: $SdkPath" }

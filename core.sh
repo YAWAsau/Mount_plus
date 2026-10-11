@@ -1,5 +1,5 @@
 #!/system/bin/sh
-# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.94-native-core-ndkr30-api28
+# YAWAsau Mount generic config-driven kernel-bind/bindfs core, v1.4.95-rust-rc1-ndkr30-api28
 # Internal library only. mount.conf is parsed as data; it is never sourced.
 
 MODDIR=${MODDIR:-${0%/*}}
@@ -49,7 +49,7 @@ CONFIG_STATE="$RUNTIME/config.state"
 APPLIED_HASH="$RUNTIME/config.applied.cksum"
 PROFILE_INTERNAL_EVENT="$RUNTIME/profile_internal.conf_event"
 NS_BG_GEN="$RUNTIME/ns_background.generation"
-MODULE_VERSION=v1.4.94-native-core-ndkr30-api28-20261011
+MODULE_VERSION=v1.4.95-rust-rc1-ndkr30-api28-20261011
 mkdir -p "$RUNTIME" "$PARSED" 2>/dev/null
 DELIM='|'
 

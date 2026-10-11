@@ -3,7 +3,7 @@ MODID=dcimswitch
 DATA_DIR=/data/adb/dcimswitch
 CONF="$DATA_DIR/mount.conf"
 
-ui_print '── YAWAsau Mount v1.4.94 安裝 ──'
+ui_print '── YAWAsau Mount v1.4.95 Rust RC1 安裝 ──'
 ui_print '檢查環境：arm64 / Dex 通知 / bindfs'
 [ "$ARCH" = arm64 ] || abort '不支援的架構：本模組只支援 arm64-v8a'
 
@@ -11,6 +11,13 @@ ui_print '解壓模組檔案...'
 unzip -oq "$ZIPFILE" 'module.prop' 'core.sh' 'permissions.sh' 'service.sh' 'watchers.sh' 'user-state.sh' 'boot-completed.sh' 'mount.sh' 'control.sh' 'action.sh' 'uninstall.sh' 'sepolicy.rule' 'mount.conf.default' 'mount.conf.example' -d "$MODPATH" >/dev/null 2>&1 || abort '解壓核心檔案失敗'
 mkdir -p "$MODPATH/bin" "$MODPATH/webroot"
 unzip -oq "$ZIPFILE" 'bin/*' 'webroot/*' -d "$MODPATH" >/dev/null 2>&1 || abort '解壓執行檔或 WebUI 失敗'
+# One Rust multicall ELF with BusyBox-style compatibility names.
+[ -f "$MODPATH/bin/mounttx" ] || abort 'Rust multicall ELF missing'
+for _alias in confwatch propwait mount.fuse3 mount_fusefs; do
+  rm -f "$MODPATH/bin/$_alias"
+  ln -s mounttx "$MODPATH/bin/$_alias" || abort 'Cannot create Rust entry point'
+done
+
 touch "$MODPATH/skip_mount"
 
 # Dex-only notification build must not be flashed without classes.dex.
@@ -65,7 +72,7 @@ fi
 
 ui_print '設定權限...'
 set_perm_recursive "$MODPATH" 0 0 0755 0644
-for _f in permissions.sh service.sh watchers.sh boot-completed.sh mount.sh control.sh action.sh uninstall.sh bin/sourcewatch bin/propwait bin/filewatch bin/confwatch bin/bindfs_mount.sh bin/bindfs bin/mount.fuse3 bin/mount_fusefs bin/magiskpolicy bin/mounttx bin/classes.dex bin/notify_client.sh; do [ -e "$MODPATH/$_f" ] && set_perm "$MODPATH/$_f" 0 0 0755; done
+for _f in permissions.sh service.sh watchers.sh boot-completed.sh mount.sh control.sh action.sh uninstall.sh bin/propwait bin/confwatch bin/bindfs_mount.sh bin/bindfs bin/mount.fuse3 bin/mount_fusefs bin/magiskpolicy bin/mounttx bin/classes.dex bin/notify_client.sh; do [ -e "$MODPATH/$_f" ] && set_perm "$MODPATH/$_f" 0 0 0755; done
 set_perm "$MODPATH/core.sh" 0 0 0644
 [ -f "$MODPATH/sepolicy.rule" ] && set_perm "$MODPATH/sepolicy.rule" 0 0 0644
 

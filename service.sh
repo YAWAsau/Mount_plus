@@ -8,7 +8,6 @@ CONTROL="$MODDIR/control.sh"
 MOUNT="$MODDIR/mount.sh"
 CONFWATCH="$MODDIR/bin/confwatch"
 PROPWAIT="$MODDIR/bin/propwait"
-FILEWATCH="$MODDIR/bin/filewatch"
 . "$MODDIR/user-state.sh" || exit 90
 . "$MODDIR/watchers.sh" || exit 90
 mkdir -p "$RUNTIME" 2>/dev/null
@@ -47,7 +46,7 @@ if [ ! -e "$MARK" ]; then
     _i=0; while [ ! -e "$MARK" ] && [ "$_i" -lt 40 ]; do sleep 0.05; _i=$((_i+1)); done
   fi
 fi
-printf '========== YAWAsau Mount v1.4.94｜本次開機日誌 ==========\n' >> "$LOG" 2>/dev/null
+printf '========== YAWAsau Mount v1.4.95 Rust RC1｜本次開機日誌 ==========\n' >> "$LOG" 2>/dev/null
 log '[資訊] 掛載服務啟動'
 log "[資訊] 目前生效設定｜$CONF"
 log "[資訊] 模組內建模板不會被監聽｜$MODDIR/mount.conf / mount.conf.default / mount.conf.example"
@@ -72,14 +71,8 @@ else
 fi
 control_run refresh_card >/dev/null 2>&1 || true
 
-# Wait boot_completed event-first; polling only if propwait unavailable/fails.
-if [ "$(getprop sys.boot_completed 2>/dev/null)" != 1 ]; then
-  if [ -x "$PROPWAIT" ]; then
-    log '[資訊] propwait 等待 sys.boot_completed=1'
-    "$PROPWAIT" equals sys.boot_completed 1 >/dev/null 2>&1 || true
-  fi
-  while [ "$(getprop sys.boot_completed 2>/dev/null)" != 1 ]; do sleep 2; done
-fi
+# Property-specific native wait; no healthy-state fallback polling.
+"$PROPWAIT" equals sys.boot_completed 1 >/dev/null 2>&1 || return 1
 log '[資訊] 系統開機完成'
 if [ "$(user_desired_count 0)" -gt 0 ] 2>/dev/null && ! user_is_unlocked 0; then
   log '[資訊] User 0 尚未解鎖，等待 CE 儲存解密後再套用完整掛載'
@@ -133,31 +126,9 @@ config_defer_count(){
   sed -n 's/^DEFER=//p' "$RUNTIME/config.state" 2>/dev/null | head -n1
 }
 
-config_watch_loop(){
-  log "[資訊] mount.conf 事件監聽啟動｜binary=confwatch｜path=$CONF｜mode=native-stable-content"
-  _cw_last_hash=$(config_content_hash)
-  while true; do
-    if [ -x "$CONFWATCH" ]; then
-      # v1.4.78: confwatch owns directory inotify + content hash fallback +
-      # stable debounce internally.  service.sh no longer polls mount.conf every
-      # 0.25s with shell cksum/sleep; this keeps reliability for rename-style
-      # editors without a permanent shell polling loop.
-      _cw_hash=$("$CONFWATCH" --wait-stable-change "$CONF" "$_cw_last_hash")
-      _wrc=$?
-      if [ "$_wrc" -ne 0 ]; then
-        log "[警告] confwatch 退出，交由管理程序退避重啟｜rc=$_wrc"
-        return "$_wrc"
-      fi
-      case "$_cw_hash" in *:*) ;; *) _cw_hash=$(config_content_hash);; esac
-      if [ -z "$_cw_hash" ]; then
-        log "[警告] confwatch 未取得內容 hash，稍後重試｜watch_rc=$_wrc"
-        sleep 0.25
-        continue
-      fi
-      if [ -n "$_cw_last_hash" ] && [ "$_cw_hash" = "$_cw_last_hash" ]; then
-        log "[資訊] 偵測 mount.conf 非內容事件，已跳過｜watch_rc=$_wrc｜reason=confwatch_stable｜hash=$_cw_hash"
-        continue
-      fi
+config_event(){
+  _cw_hash=$(config_content_hash) || return 1
+  _wrc=0
       _cw_last_hash=$_cw_hash
       # v1.4.81: Profile switching writes mount.conf internally after it has
       # already committed parsed/active/APPLIED_HASH.  confwatch will still see
@@ -190,7 +161,7 @@ config_watch_loop(){
       if [ "$_cw_profile_internal" -eq 1 ]; then
         log "[資訊] 偵測 Profile 內部 mount.conf 發佈事件，已跳過重複 config 套用與通知｜watch_rc=$_wrc｜reason=profile_internal｜hash=$_cw_hash"
         control_run refresh_card >/dev/null 2>&1 || true
-        continue
+        return 0
       fi
       log "[資訊] 偵測 mount.conf 內容變更｜watch_rc=$_wrc｜reason=confwatch_stable｜hash=$_cw_hash"
       _before_active="$RUNTIME/active.before.config.$$"
@@ -226,17 +197,6 @@ config_watch_loop(){
       fi
       rm -f "$_before_active" 2>/dev/null || true
       control_run refresh_card >/dev/null 2>&1 || true
-    else
-      # Safety fallback only; packaged arm64 module should never use this branch.
-      log '[警告] confwatch 遺失，退回每 2 秒檢查設定檔時間戳'
-      _last=''
-      while [ ! -x "$CONFWATCH" ]; do
-        _now=$(stat -c '%Y:%s' "$CONF" 2>/dev/null)
-        if [ -n "$_last" ] && [ "$_now" != "$_last" ]; then control_run reload config_poll_fallback >/dev/null 2>&1; fi
-        _last=$_now; sleep 2
-      done
-    fi
-  done
 }
 
 
@@ -247,10 +207,6 @@ user_storage_ready(){
     return 1
   fi
   [ -d "/data/media/$_usr" ] || [ -d "/storage/emulated/$_usr" ]
-}
-user_desired_count(){
-  _usr=$1
-  awk -F'|' -v u="$_usr" '$2==u{c++} END{print c+0}' "$RUNTIME/parsed/mounts.desired" 2>/dev/null
 }
 user_active_count(){
   _usr=$1
@@ -338,72 +294,6 @@ recover_unlocked_users(){
   return "$_ru_failed"
 }
 
-source_watch_loop(){
-  "$MODDIR/bin/sourcewatch" "$RUNTIME/parsed/mounts.desired" | while IFS= read -r _source_event; do
-    [ "$_source_event" = changed ] || continue
-    # Bounded retries cover a transaction holding the reload lock; no idle poll.
-    for _source_delay in 0 1 2 4; do
-      [ "$_source_delay" = 0 ] || sleep "$_source_delay"
-      control_run reload source_event >/dev/null 2>&1 && break
-    done
-  done
-  return 1
-}
-
-userstate_watch_loop(){
-  command -v logcat >/dev/null 2>&1 || return 1
-  recover_unlocked_users watcher_start >/dev/null 2>&1 &
-  log '[資訊] 多使用者 lifecycle 事件監聽啟動｜RUNNING_UNLOCKED/STOPPING/SHUTDOWN'
-  while true; do
-    logcat -v tag -T 1 UserController.UserState:I '*:S' | while IFS= read -r _line; do
-      case "$_line" in
-        *'User '*' to RUNNING_UNLOCKED'*|*'User '*'state changed from '*'to RUNNING_UNLOCKED'*)
-          _u=$(printf '%s\n' "$_line" | sed -n 's/.*User \([0-9][0-9]*\) .*/\1/p' | head -n1)
-          case "$_u" in ''|*[!0-9]*) continue;; esac
-          log "[資訊] User 解鎖事件｜User=$_u｜準備套用對應掛載"
-          user_reload_retry_once "$_u" lifecycle >/dev/null 2>&1 &
-          ;;
-        *'User '*' to STOPPING'*|*'User '*' to SHUTDOWN'*)
-          _u=$(printf '%s\n' "$_line" | sed -n 's/.*User \([0-9][0-9]*\) .*/\1/p' | head -n1)
-          case "$_u" in ''|*[!0-9]*) continue;; esac
-          log "[資訊] User 停止事件｜User=$_u｜卸載該 User 映射"
-          control_run unmount_user "$_u" >/dev/null 2>&1
-          control_run refresh_card >/dev/null 2>&1 || true
-          ;;
-      esac
-    done
-    log '[警告] User lifecycle logcat 監聽意外結束，交由管理程序退避重啟'
-    return 1
-  done
-}
-
-# User 0 event fallbacks: they race with the lifecycle watcher and are one-shot.
-user0_prop_once(){
-  [ -x "$PROPWAIT" ] || return 1
-  if [ "$(user_desired_count 0)" -gt 0 ] 2>/dev/null; then
-    _ce=$(getprop sys.user.0.ce_available 2>/dev/null)
-    case "$_ce" in
-      true|1) ;;
-      *) "$PROPWAIT" equals sys.user.0.ce_available true >/dev/null 2>&1 || return 1; _ce=$(getprop sys.user.0.ce_available 2>/dev/null) ;;
-    esac
-    log "[資訊] User 0 CE 解鎖事件命中｜來源=propwait｜value=${_ce:-event}"
-    user_reload_retry_once 0 propwait >/dev/null 2>&1
-  fi
-}
-user0_file_once(){
-  [ -x "$FILEWATCH" ] || return 1
-  [ "$(user_desired_count 0)" -gt 0 ] 2>/dev/null || return 0
-  "$FILEWATCH" --wait-exists /data/media/0/Download >/dev/null 2>&1 || return 1
-  log '[資訊] User 0 儲存路徑事件命中｜來源=filewatch'
-  if ! user_is_unlocked 0; then
-    # Some ROMs create Download before CE is unlocked. Continue blocking on
-    # the property event instead of repeatedly waking a retry timer.
-    [ -x "$PROPWAIT" ] || return 1
-    "$PROPWAIT" equals sys.user.0.ce_available true >/dev/null 2>&1 || return 1
-  fi
-  user_reload_retry_once 0 filewatch >/dev/null 2>&1
-}
-
 run_boot_service(){
   local _bs_reason _bs_boot
   _bs_reason=$1
@@ -437,27 +327,19 @@ run_boot_service(){
 }
 
 case "${1:-boot}" in
-  --watcher)
-    watch_name_valid "$2" || exit 2
+  --event)
     case "$2" in
-      confwatch) [ -x "$CONFWATCH" ] || exit 127 ;;
-      sourcewatch) [ -x "$MODDIR/bin/sourcewatch" ] || exit 127 ;;
-      userstate) command -v logcat >/dev/null 2>&1 || exit 127 ;;
-      user0prop) [ -x "$PROPWAIT" ] || exit 127 ;;
-      user0file) [ -x "$FILEWATCH" ] || exit 127 ;;
-    esac
-    watch_worker_ready "$2" || exit 1
-    case "$2" in
-      confwatch) config_watch_loop ;;
-      sourcewatch) source_watch_loop ;;
-      userstate) userstate_watch_loop ;;
-      user0prop) user0_prop_once ;;
-      user0file) user0_file_once ;;
+      config) config_event ;;
+      source) control_run reload source_event ;;
+      recover) recover_unlocked_users rust_start ;;
+      unlock:*) user_reload_retry_guarded "${2#unlock:}" rust_event ;;
+      stop:*) control_run unmount_user "${2#stop:}"; control_run refresh_card ;;
+      *) exit 2 ;;
     esac
     exit $? ;;
   --recover-unlocked) recover_unlocked_users "${2:-manual_recovery}"; exit $? ;;
   --reload-user) user_reload_retry_guarded "$2" "$3"; exit $? ;;
   boot) run_boot_service boot; exit $? ;;
   --boot-reconcile) run_boot_service boot_completed; exit $? ;;
-  *) echo 'usage: service.sh [--watcher NAME|--recover-unlocked REASON|--reload-user USER REASON|--boot-reconcile]' >&2; exit 2 ;;
+  *) echo 'usage: service.sh [--event EVENT|--recover-unlocked REASON|--reload-user USER REASON|--boot-reconcile]' >&2; exit 2 ;;
 esac

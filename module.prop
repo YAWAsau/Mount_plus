@@ -1,7 +1,7 @@
 id=dcimswitch
 name=YAWAsau Mount
-version=v1.4.94-native-core-ndkr30-api28-20261011
-versionCode=1494
+version=v1.4.95
+versionCode=1495
 author=Github@YAWAsau
 description=來源重建事件恢復、掛載映射驗證、媒體索引掃描保護、繁簡 WebUI；NDK r30/API28
 updateJson=https://github.com/YAWAsau/Mount_plus/releases/latest/download/update.json

@@ -1,49 +1,53 @@
 {
+  "module_version": "v1.4.95",
+  "release_status": "stable",
   "ndk_revision": "30.0.16248370",
   "android_api_target": 28,
-  "target": "aarch64-linux-android28",
+  "target": "aarch64-linux-android",
   "load_alignment": 16384,
-  "classes_dex_sha256": "f2a483a2e50b35f3af4c211ef25809b723163d6c203f3daf1990404c118954a6",
-  "release_status": "candidate; installed spare-device boot and live source recovery passed",
-  "rebuilt_for_1493": {
-    "ndk": "30.0.16248370",
-    "api": 28,
-    "abi": "arm64-v8a",
-    "page_size": 16384,
-    "files": {
-      "sourcewatch": "4ba7e25e74af2e7b3294890a5ca6cbb87865794a2761cc57395d7cdec83ed550",
-      "mounttx": "10da73b85ff3aee65bd560617ebe0c9d1bbd49124239a02511fa7655a9f35b71"
-    }
-  },
-  "retained_1492_bin": [
-    "bindfs",
-    "bindfs_mount.sh",
-    "classes.dex",
-    "confwatch",
-    "filewatch",
-    "magiskpolicy",
-    "mount.fuse3",
-    "mount_fusefs",
-    "propwait"
-  ],
-  "module_version": "v1.4.94-native-core-ndkr30-api28-20261011",
+  "native_source": "source/mountctl",
+  "native_language": "Rust",
   "rebuilt": [
     "mounttx"
   ],
-  "native_build_origin": "v1.4.93 RC2 baseline; mounttx rebuilt with shared native runtime/config/supervisor",
-  "validation": "Android 17 original 7 mounts healthy after boot; kernel and bindfs source disappearance/recreation recovered automatically; MediaProvider namespace content, profile a/b/a, manual remount, config restore, isolated UBSan identity/foreign mount/space path, parser differential/malformed input, supervisor recovery, shell and WebUI tests passed",
-  "pending_validation": [
-    "Salt Player/gallery private media-library persistence across reboot",
-    "Other ROMs / Android API 28 runtime"
+  "retained_third_party": [
+    "bindfs",
+    "magiskpolicy",
+    "classes.dex"
   ],
-  "rebuilt_for_1494": {
-    "ndk": "30.0.16248370",
-    "api": 28,
-    "abi": "arm64-v8a",
-    "page_size": 16384,
-    "files": {
-      "mounttx": "b9a3c0d729bbbb5a86ae533f5bdba1b8dca6b62d831143f1d8110cf2fcd81b94"
-    }
+  "removed": [
+    "sourcewatch",
+    "filewatch"
+  ],
+  "pending_validation": [
+    "RC2 symlink installation cold boot",
+    "Secondary user lifecycle on device",
+    "Other ROMs / API 28 runtime",
+    "Salt Player/gallery private media-library persistence"
+  ],
+  "bin_sha256": {
+    "bindfs": "76258d27edfd696770d6097fac29f9e55df3dc2fd143f4ce0e93dbf16d184e42",
+    "bindfs_mount.sh": "7446398d1dafcc19049284f07620d0c8f4c9c5548f3ec6d683a94d8aeebff7fd",
+    "classes.dex": "f2a483a2e50b35f3af4c211ef25809b723163d6c203f3daf1990404c118954a6",
+    "magiskpolicy": "d87fb4aab2041b66f21597dd16f820b95a102aa53657901c801393d0c512224f",
+    "mounttx": "d64a0a7341c6c8525e71ea946754bd6bc75ad6ef3f78e177f1ee15b7734f3021"
   },
-  "boot_observation": "One boot attempt stalled with vendor fingerprint HAL SIGSEGV before user mounts; next reboot succeeded; cause not established."
+  "validation": [
+    "C/Rust parser output identical on installed configuration",
+    "C/Rust status and visibility identical for eight configured mappings",
+    "Private namespace: profile switch, rollback, replaced source, foreign mount protection, bindfs + Rust FUSE helper, generation cancellation",
+    "Watcher: singleton, config dedup, source recreation, ignore source content writes",
+    "Rust fmt/clippy, Android tests, ELF LOAD and RELRO 16 KiB alignment",
+    "Hot update: seven active mappings healthy, live config byte-identical",
+    "30-second idle sample: CPU time and context switches unchanged; RSS approximately 4 MiB",
+    "RC1 cold boot: seven active mappings visible; 30 seconds zero CPU delta",
+    "RC2 private namespace transactions and real bindfs through symlink FUSE helper passed",
+    "RC2 installed layout survived subsequent device reboot; no new full mount audit at publication because ADB disconnected"
+  ],
+  "multicall_symlinks": {
+    "confwatch": "mounttx",
+    "propwait": "mounttx",
+    "mount.fuse3": "mounttx",
+    "mount_fusefs": "mounttx"
+  }
 }

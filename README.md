@@ -9,6 +9,18 @@ YAWAsau Mount 是一個面向 Android root / KernelSU / Magisk 環境的儲存�
 /mnt/YAWAsau/DCIM2  -> /storage/emulated/0/DCIM
 ```
 
+## v1.4.95 正式版
+
+自家原生程式統一為 `source/mountctl` 的 Rust multicall 核心：設定解析、狀態 JSON、程序與掛載身分判斷、Profile 交易、來源重掛、FUSE 輔助程式及事件監聽。`mounttx`、`confwatch`、`propwait`、`mount.fuse3`、`mount_fusefs` 共用一份 Rust ELF：僅 `bin/mounttx` 是實體檔案，安裝器將其他四個名稱建立為指向 `mounttx` 的相對符號連結；ZIP 不再存放四份重複 ELF。
+
+常駐監聽合併為一個程序。設定與來源變更使用 inotify；CE 屬性使用指定屬性的 futex 等待；只在設定包含副使用者或 CE 屬性尚不存在時訂閱 system_server 的 logd lifecycle 事件。健康閒置狀態沒有固定輪詢；防抖與失敗重試只在事件後啟動。
+
+Shell 仍承擔安裝、Android/ROM 整合、通知調用及上層操作編排，並非整個模塊已沒有 Shell。第三方 bindfs/libfuse、magiskpolicy 和 Java 通知元件沿用原實作；被取代的自家 C 源碼與獨立 sourcewatch/filewatch 已移除。
+
+建置：`source/build/build_rust_windows.ps1 -Tests`，使用 NDK r30、API 28、ARM64、16 KiB ELF 對齊；Cargo.lock 與 vendor 支援離線建置。測試：`python source/tests/rust_android.py --serial SERIAL`，只操作隔離目錄與私有 mount namespace。
+
+RC1 已通過主力機冷開機；RC2 的符號連結入口已通過私有 mount namespace 實際 FUSE 掛載。RC2 安裝後冷開機、副使用者實機生命週期及其他 ROM 仍待驗證；媒體庫跨重開機索引保留也不等同於掛載可見性測試。
+
 ## 主要功能
 
 - 掛載自定義分區到 Android 內置儲存路徑。

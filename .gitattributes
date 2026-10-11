@@ -14,3 +14,4 @@
 *.h text eol=lf
 *.txt text eol=lf
 .gitattributes text eol=lf
+source/mountctl/vendor/** -text

@@ -1148,76 +1148,9 @@ chmod +x "`$OUT/bin/bindfs" 2>/dev/null || true
 }
 
 
-# v1.4.78: native stable-content confwatch. It keeps inotify, inode-rename
-# recovery and content hash debounce inside the native helper, so service.sh no
-# longer needs a permanent shell cksum/sleep polling loop.
-$confwatchSrc = Join-Path $RootDir 'source\confwatch.c'
-$confwatchStart = Join-Path $RootDir 'source\confwatch_start.S'
-Need-File $confwatchSrc 'confwatch.c'
-Need-File $confwatchStart 'confwatch_start.S'
-$confwatchOut = Join-Path $outPath 'bin\confwatch'
-New-Item -ItemType Directory -Force -Path (Split-Path -Parent $confwatchOut) | Out-Null
-$clangExe = Join-Path $toolchain 'bin\clang.exe'
-Need-File $clangExe 'NDK clang.exe'
-$sysroot = Join-Path $toolchain 'sysroot'
-$target = "aarch64-linux-android$Api"
-Run-Checked -Title 'build native confwatch stable-content watcher' -Exe $clangExe -ArgList @(
-    "--target=$target",
-    '-nostdlib','-static','-ffreestanding','-fno-builtin',
-    '-Wall','-Wextra','-Werror','-O2',
-    "-Wl,-z,max-page-size=$PageSize",
-    "-Wl,-z,common-page-size=$PageSize",
-    '-o',$confwatchOut,$confwatchStart,$confwatchSrc
-)
-Run-Checked -Title 'strip native confwatch helper' -Exe $strip -ArgList @('--strip-all', $confwatchOut)
-    Verify-NativeArtifact -Binary $confwatchOut -Mode 'static-nolibc'
-
-# v1.4.62: always build the native mount.fuse3 helper used by static libfuse.
-$helperSrc = Join-Path $RootDir 'source\mount_fuse3_helper.c'
-Need-File $helperSrc 'mount_fuse3_helper.c'
-$helperOut = Join-Path $outPath 'bin\mount.fuse3'
-$helperAlias = Join-Path $outPath 'bin\mount_fusefs'
-New-Item -ItemType Directory -Force -Path (Split-Path -Parent $helperOut) | Out-Null
-$clangExe = Join-Path $toolchain 'bin\clang.exe'
-Need-File $clangExe 'NDK clang.exe'
-$sysroot = Join-Path $toolchain 'sysroot'
-$target = "aarch64-linux-android$Api"
-Run-Checked -Title 'build native mount.fuse3 helper' -Exe $clangExe -ArgList @(
-    "--target=$target",
-    "--sysroot=$sysroot",
-    '-std=gnu11','-Wall','-Wextra','-Werror','-O2','-fPIE','-pie',
-    "-Wl,-z,max-page-size=$PageSize",
-    "-Wl,-z,common-page-size=$PageSize",
-    '-o',$helperOut,$helperSrc
-)
-Run-Checked -Title 'strip native mount.fuse3 helper' -Exe $strip -ArgList @('--strip-all', $helperOut)
-    Verify-NativeArtifact -Binary $helperOut -Mode 'android-exe'
-Copy-Item -LiteralPath $helperOut -Destination $helperAlias -Force
-
-
-# v1.4.74: native Profile transaction helper.  It owns foreground
-# kernel-bind / bindfs_shared switching, visible probe retry, and rollback.
-$mounttxSrc = Join-Path $RootDir 'source\mounttx.c'
-Need-File $mounttxSrc 'mounttx.c'
-$mounttxOut = Join-Path $outPath 'bin\mounttx'
-Run-Checked -Title 'build native mounttx profile/source-refresh transaction helper' -Exe $clangExe -ArgList @(
-    "--target=$target",
-    "--sysroot=$sysroot",
-    '-std=gnu11','-Wall','-Wextra','-Werror','-O2','-fPIE','-pie',
-    "-Wl,-z,max-page-size=$PageSize",
-    "-Wl,-z,common-page-size=$PageSize",
-    '-o',$mounttxOut,$mounttxSrc
-)
-$sourcewatchOut = Join-Path $outPath 'bin\sourcewatch'
-Run-Checked -Title 'build source identity event watcher' -Exe $clangExe -ArgList @(
-    "--target=$target", "--sysroot=$sysroot", '-std=gnu11','-Wall','-Wextra','-Werror','-O2','-fPIE','-pie',
-    "-Wl,-z,max-page-size=$PageSize", "-Wl,-z,common-page-size=$PageSize",
-    '-o',$sourcewatchOut,(Join-Path $RootDir 'source\sourcewatch.c')
-)
-Run-Checked -Title 'strip sourcewatch' -Exe $strip -ArgList @('--strip-all', $sourcewatchOut)
-Verify-NativeArtifact -Binary $sourcewatchOut -Mode 'android-exe'
-Run-Checked -Title 'strip native mounttx helper' -Exe $strip -ArgList @('--strip-all', $mounttxOut)
-    Verify-NativeArtifact -Binary $mounttxOut -Mode 'android-exe'
+# All project-owned native code is built from the Rust multicall program.
+& (Join-Path $ScriptDir 'build_rust_windows.ps1') -NdkRoot $ndk -OutDir (Join-Path $outPath 'bin')
+if ($LASTEXITCODE) { Fail 'Rust native build failed' }
 
 if ($BuildMagiskPolicy) {
     if ([string]::IsNullOrWhiteSpace($MagiskSrc)) { $MagiskSrc = Join-Path $RootDir 'third_party\Magisk' }
@@ -1319,8 +1252,8 @@ $buildInfo = [ordered]@{
     android_api_target = $Api
     target = "aarch64-linux-android$Api"
     load_alignment = $PageSize
-    rebuilt = @('bindfs (libfuse3 linked statically)', 'confwatch (static, no libc)', 'mount.fuse3', 'mount_fusefs (alias)', 'mounttx', 'sourcewatch')
-    retained_from_input = @('filewatch', 'propwait')
+    rebuilt = @('bindfs (libfuse3 linked statically)', 'Rust multicall: confwatch/propwait', 'mount.fuse3', 'mount_fusefs (alias)', 'mounttx')
+    retained_from_input = @()
     magiskpolicy = $(if ($BuildMagiskPolicy) { 'rebuilt with upstream ONDK' } else { 'retained from input; not an NDK r30 rebuild' })
     compatibility = 'API target and ELF checks do not replace Android device runtime tests.'
 }

@@ -1,0 +1,15 @@
+[package]
+name = "mountctl"
+version = "1.4.95"
+edition = "2021"
+
+[dependencies]
+libc = "=0.2.189"
+serde_json = "=1.0.151"
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true

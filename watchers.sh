@@ -1,14 +1,11 @@
 #!/system/bin/sh
-# Event workers are supervised with wait(2), with no healthy-state timer.
+# One Rust event service; Shell is used only for start/stop and transaction locking.
 WATCH_MODDIR=${MODDIR:-${0%/*}}
 WATCH_RUNTIME=/data/adb/dcimswitch/runtime
 WATCH_STOP=/dev/.yawasau_watchers_stopped_v1490
 
 watch_log() {
   printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >> "$WATCH_RUNTIME/service.log"
-}
-watch_name_valid() {
-  case "$1" in confwatch|sourcewatch|userstate|user0prop|user0file) return 0 ;; *) return 1 ;; esac
 }
 watch_with_fd() {
   # Android mksh marks exec-opened descriptors close-on-exec. Explicitly
@@ -40,35 +37,8 @@ watch_lock_wait() {
   done
   return 1
 }
-watch_identity() {
-  "$WATCH_MODDIR/bin/mounttx" watch-identity "$1"
-}
 watch_record_live() {
   "$WATCH_MODDIR/bin/mounttx" watch-live "$1"
-}
-watch_write_record() {
-  "$WATCH_MODDIR/bin/mounttx" watch-write "$1" "$2"
-}
-watch_once_done() {
-  local wo_boot
-  case "$1" in user0prop|user0file) ;; *) return 1 ;; esac
-  wo_boot=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null)
-  [ -n "$wo_boot" ] && [ "$(cat "$WATCH_RUNTIME/watch.$1.done" 2>/dev/null)" = "$wo_boot" ]
-}
-watch_ready() {
-  watch_once_done "$1" && return 0
-  if watch_record_live "$WATCH_RUNTIME/watch.$1.supervisor" &&
-    watch_record_live "$WATCH_RUNTIME/watch.$1.worker"; then return 0; fi
-  # A one-shot worker may finish between the first done check and PID checks.
-  watch_once_done "$1"
-}
-watch_worker_ready() {
-  local ww_pid ww_rest
-  watch_name_valid "$1" || return 2
-  # read is a shell builtin, so /proc/self refers to this worker, not a helper.
-  read -r ww_pid ww_rest < /proc/self/stat || return 1
-  watch_write_record "$WATCH_RUNTIME/watch.$1.worker" "$ww_pid" || return 1
-  watch_log "[資訊] 事件監聽器就緒｜name=$1｜pid=$ww_pid"
 }
 watch_detach() {
   if [ -x /data/adb/ksu/bin/busybox ]; then
@@ -81,11 +51,8 @@ watch_detach() {
 watch_signal_record() {
   "$WATCH_MODDIR/bin/mounttx" watch-signal "$1" "${2:-process}"
 }
-watch_supervise() {
-  exec "$WATCH_MODDIR/bin/mounttx" watch-supervise "$WATCH_MODDIR" "$WATCH_RUNTIME" "$WATCH_STOP" "$1"
-}
 watch_start_all() {
-  local wa_name wa_i wa_failed
+  local wa_i
   if [ "$1" = boot_completed ] && [ -e "$WATCH_STOP" ]; then return 0; fi
   [ -x /system/bin/flock ] && [ -x /system/bin/setsid ] || {
     watch_log '[錯誤] 缺少 flock/setsid，無法啟動監聽管理程序'
@@ -95,22 +62,15 @@ watch_start_all() {
   watch_lock_wait 6 10 || return 4
   if [ "$1" = boot_completed ] && [ -e "$WATCH_STOP" ]; then return 0; fi
   rm -f "$WATCH_STOP"
-  wa_failed=0
-  for wa_name in confwatch sourcewatch userstate user0prop user0file; do
-    watch_ready "$wa_name" && continue
-    watch_detach "$WATCH_MODDIR/watchers.sh" supervise "$wa_name" 6>&- </dev/null >> "$WATCH_RUNTIME/watchers.stderr.log" 2>&1 &
-    # Bounded startup handshake only; this loop is not a resident health poll.
-    wa_i=0
-    while [ "$wa_i" -lt 40 ]; do
-      watch_ready "$wa_name" && break
-      sleep 0.05; wa_i=$((wa_i+1))
-    done
-    if ! watch_ready "$wa_name"; then
-      watch_log "[錯誤] 事件監聽器啟動確認逾時｜name=$wa_name"
-      wa_failed=1
-    fi
+  watch_record_live "$WATCH_RUNTIME/watch.rust.supervisor" && return 0
+  /system/bin/setsid "$WATCH_MODDIR/bin/mounttx" watch "$WATCH_MODDIR" "$WATCH_RUNTIME" "$WATCH_STOP" 6>&- </dev/null >> "$WATCH_RUNTIME/watchers.stderr.log" 2>&1 &
+  wa_i=0
+  while [ "$wa_i" -lt 40 ]; do
+    watch_record_live "$WATCH_RUNTIME/watch.rust.supervisor" && return 0
+    sleep 0.05; wa_i=$((wa_i+1))
   done
-  return "$wa_failed"
+  watch_log '[錯誤] Rust 事件服務啟動確認逾時'
+  return 1
 }
 watch_stop_all() (
   local wt_name wt_alive wt_i
@@ -126,14 +86,14 @@ watch_stop_all() (
   trap 'lock_release' EXIT
   trap 'exit 1' INT TERM
   : > "$WATCH_STOP" || return 1
-  for wt_name in confwatch sourcewatch userstate user0prop user0file; do
+  for wt_name in rust confwatch sourcewatch userstate user0prop user0file; do
     watch_signal_record "$WATCH_RUNTIME/watch.$wt_name.supervisor"
     watch_signal_record "$WATCH_RUNTIME/watch.$wt_name.worker" group
   done
   wt_i=0
   while [ "$wt_i" -lt 40 ]; do
     wt_alive=
-    for wt_name in confwatch sourcewatch userstate user0prop user0file; do
+    for wt_name in rust confwatch sourcewatch userstate user0prop user0file; do
       watch_record_live "$WATCH_RUNTIME/watch.$wt_name.supervisor" && wt_alive=1
       watch_record_live "$WATCH_RUNTIME/watch.$wt_name.worker" && wt_alive=1
     done
@@ -150,8 +110,7 @@ if [ "${0##*/}" = watchers.sh ]; then
   case "$1" in
     start) watch_start_all "${2:-manual}" ;;
     stop) watch_stop_all ;;
-    supervise) watch_supervise "$2" ;;
-    *) echo 'usage: watchers.sh {start [reason]|stop|supervise NAME}' >&2; exit 2 ;;
+    *) echo 'usage: watchers.sh {start [reason]|stop}' >&2; exit 2 ;;
   esac
   exit $?
 fi

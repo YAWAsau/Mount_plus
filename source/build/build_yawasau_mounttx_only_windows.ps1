@@ -44,27 +44,13 @@ NeedFile $verify 'verify_elf_yaw_native.ps1'
 
 $out = Join-Path $RootDir 'native_out'
 EnsureDir (Join-Path $out 'bin')
-foreach ($f in @('bindfs','mount.fuse3','mount_fusefs','magiskpolicy')) {
+foreach ($f in @('bindfs','magiskpolicy')) {
     $src = Join-Path $RootDir "bin\$f"
     if (Test-Path -LiteralPath $src -PathType Leaf) { Copy-Item -LiteralPath $src -Destination (Join-Path $out "bin\$f") -Force }
 }
 
-$srcMounttx = Join-Path $RootDir 'source\mounttx.c'
-NeedFile $srcMounttx 'mounttx.c'
-$mounttx = Join-Path $out 'bin\mounttx'
-$sysroot = Join-Path $toolchain 'sysroot'
-$target = "aarch64-linux-android$Api"
-$alignHex = if ($PageSize -eq 16384) { '0x4000' } else { '0x1000' }
-RunChecked 'build native mounttx only' $clang @(
-    "--target=$target",
-    "--sysroot=$sysroot",
-    '-std=gnu11','-Wall','-Wextra','-Werror','-O2','-fPIE','-pie',
-    "-Wl,-z,max-page-size=$PageSize",
-    "-Wl,-z,common-page-size=$PageSize",
-    '-o',$mounttx,$srcMounttx
-)
-RunChecked 'strip native mounttx' $strip @('--strip-all', $mounttx)
-RunChecked 'verify native mounttx' (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') @('-NoProfile','-ExecutionPolicy','Bypass','-File',$verify,'-Readelf',$readelf,'-Binary',$mounttx,'-Mode','android-exe','-ExpectedLoadAlign',$alignHex,'-ExpectedRelroEndAlign',$alignHex,'-AllowedNeeded','libc.so,libdl.so','-RequireLibc')
+& (Join-Path $ScriptDir 'build_rust_windows.ps1') -NdkRoot $ndk -OutDir (Join-Path $out 'bin')
+if ($LASTEXITCODE) { Fail 'Rust native build failed' }
 
 Get-ChildItem -LiteralPath $out -Recurse -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | ForEach-Object {
     $rel = $_.FullName.Substring($out.Length).TrimStart('\').Replace('\','/')
@@ -75,7 +61,7 @@ Get-ChildItem -LiteralPath $out -Recurse -File | Where-Object { $_.Name -ne 'SHA
 $pack = Join-Path $ScriptDir 'pack_yawasau_module_windows.ps1'
 NeedFile $pack 'pack_yawasau_module_windows.ps1'
 if ([string]::IsNullOrWhiteSpace($OutZip)) {
-    $OutZip = Join-Path (Split-Path -Parent $RootDir) 'YAWAsau_Mount_v1.4.92_event_recovery_ndkr30_api28_20261006.zip'
+    $OutZip = Join-Path (Split-Path -Parent $RootDir) 'YAWAsau_Mount_v1.4.95_ndkr30_api28_20261011.zip'
 }
 RunChecked 'pack module with mounttx' (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') @('-NoProfile','-ExecutionPolicy','Bypass','-File',$pack,'-ModuleRoot',$RootDir,'-NativeOut',$out,'-OutZip',$OutZip,'-IncludeMagiskPolicy','-RequireClassesDex')
 Write-Host "[OK] mounttx-only native rebuild completed: $OutZip"

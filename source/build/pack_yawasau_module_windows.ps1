@@ -14,7 +14,7 @@ $ModuleRoot = [System.IO.Path]::GetFullPath($ModuleRoot)
 if ([string]::IsNullOrWhiteSpace($NativeOut)) { $NativeOut = Join-Path $ModuleRoot 'native_out' }
 $NativeOut = [System.IO.Path]::GetFullPath($NativeOut)
 if ([string]::IsNullOrWhiteSpace($OutZip)) {
-    $OutZip = Join-Path (Split-Path -Parent $ModuleRoot) 'YAWAsau_Mount_v1.4.94_native_core_ndkr30_api28_20261011.zip'
+    $OutZip = Join-Path (Split-Path -Parent $ModuleRoot) 'YAWAsau_Mount_v1.4.95_ndkr30_api28_20261011.zip'
 }
 
 function Fail([string]$m) { throw $m }
@@ -57,12 +57,8 @@ function AddZipFile([System.IO.Compression.ZipArchive]$Zip, [string]$BaseDir, [s
 }
 
 $bindfs = ResolveNativeOutFile (Join-Path $NativeOut 'bin\bindfs') (Join-Path $NativeOut 'native_out\bin\bindfs') 'native_out\bin\bindfs'
-$mountFuse3 = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mount.fuse3') (Join-Path $NativeOut 'native_out\bin\mount.fuse3') 'native_out\bin\mount.fuse3'
-$mountFusefs = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mount_fusefs') (Join-Path $NativeOut 'native_out\bin\mount_fusefs') 'native_out\bin\mount_fusefs'
 $mounttx = ResolveNativeOutFile (Join-Path $NativeOut 'bin\mounttx') (Join-Path $NativeOut 'native_out\bin\mounttx') 'native_out\bin\mounttx'
-$confwatch = ResolveNativeOutFile (Join-Path $NativeOut 'bin\confwatch') (Join-Path $NativeOut 'native_out\bin\confwatch') 'native_out\bin\confwatch'
-$sourcewatch = ResolveNativeOutFile (Join-Path $NativeOut 'bin\sourcewatch') (Join-Path $NativeOut 'native_out\bin\sourcewatch') 'sourcewatch'
-$Stage = Join-Path $ModuleRoot '.pack_stage_v1494'
+$Stage = Join-Path $ModuleRoot '.pack_stage_v1495'
 if (-not ([IO.Path]::GetFullPath($Stage).StartsWith($ModuleRoot.TrimEnd([char]92) + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase))) { Fail 'Pack stage is outside ModuleRoot' }
 if (Test-Path -LiteralPath $Stage) { Remove-Item -LiteralPath $Stage -Recurse -Force }
 New-Item -ItemType Directory -Path $Stage -Force | Out-Null
@@ -85,11 +81,7 @@ foreach ($d in @('bin','webroot')) {
 # Put compiled artifacts into the existing module layout, not a separate native/ directory.
 EnsureDir (Join-Path $Stage 'bin')
 Copy-Item -LiteralPath $bindfs -Destination (Join-Path $Stage 'bin\bindfs') -Force
-Copy-Item -LiteralPath $mountFuse3 -Destination (Join-Path $Stage 'bin\mount.fuse3') -Force
-Copy-Item -LiteralPath $mountFusefs -Destination (Join-Path $Stage 'bin\mount_fusefs') -Force
-Copy-Item -LiteralPath $sourcewatch -Destination (Join-Path $Stage 'bin\sourcewatch') -Force
 Copy-Item -LiteralPath $mounttx -Destination (Join-Path $Stage 'bin\mounttx') -Force
-Copy-Item -LiteralPath $confwatch -Destination (Join-Path $Stage 'bin\confwatch') -Force
 # v1.4.55: libfuse3 is linked statically into bindfs; do not bundle libs/libfuse3.so or lib/libfuse3.so.
 $sha = Join-Path $NativeOut 'SHA256SUMS.txt'
 if (Test-Path -LiteralPath $sha -PathType Leaf) { Copy-Item -LiteralPath $sha -Destination (Join-Path $Stage 'NATIVE_SHA256SUMS.txt') -Force }
@@ -106,6 +98,12 @@ if ($RequireClassesDex) {
     if (-not (Test-Path -LiteralPath $classesDex -PathType Leaf)) {
         Fail "Dex-only notification module requires bin/classes.dex. Run build_yawasau_full_module_windows.ps1 or build_yawasau_dex_notify_module_windows.ps1, not the source/build-kit zip."
     }
+}
+
+# Compatibility names are installed as symlinks, never duplicate ELF copies.
+foreach ($Alias in @('confwatch','propwait','mount.fuse3','mount_fusefs')) {
+    $OldAlias = Join-Path $Stage "bin/$Alias"
+    if (Test-Path -LiteralPath $OldAlias) { Remove-Item -LiteralPath $OldAlias -Force }
 }
 
 # Hash exactly the packaged runtime files, including reused helpers and Dex.
